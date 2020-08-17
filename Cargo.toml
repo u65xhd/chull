@@ -1,0 +1,12 @@
+[package]
+name = "chull"
+version = "0.1.0"
+authors = ["daidanretsu<daidanretsu@outlook.jp>"]
+description = "Convex hull approximation"
+keywords = ["convex", "hull", "geo"]
+edition = "2018"
+license = "Apache-2.0"
+
+[dependencies]
+num = "0.3"
+kdtree = "0.6"
