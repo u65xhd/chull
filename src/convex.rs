@@ -1,6 +1,6 @@
 use kdtree::distance::squared_euclidean;
 use kdtree::KdTree;
-use num::{one, Float};
+use num_traits::Float;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -35,17 +35,19 @@ impl<T: Float> Facet<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ErrorKind {
+    Empty,
+    LessThanTwoDim,
     Degenerated,
     WrongDimension,
-    Empty,
 }
 
 impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
+            ErrorKind::Empty => write!(f, "empty"),
+            ErrorKind::LessThanTwoDim => write!(f, "less than two dimention"),
             ErrorKind::Degenerated => write!(f, "degenerated"),
             ErrorKind::WrongDimension => write!(f, "wrong dimension"),
-            ErrorKind::Empty => write!(f, "empty"),
         }
     }
 }
@@ -63,12 +65,15 @@ impl<T: Float> ConvexHull<T> {
         if num_points == 0 {
             return Err(ErrorKind::Empty);
         }
+        let dim = points[0].len();
+        if dim < 2 {
+            return Err(ErrorKind::LessThanTwoDim);
+        }
         if !is_same_dimension(&points) {
             return Err(ErrorKind::WrongDimension);
         }
         // remove nearby points
         let points = &remove_nearby_points(&points, T::epsilon() * (T::one() + T::one()).powi(2));
-        let dim = points[0].len();
         if num_points <= dim || is_degenerate(&points) {
             return Err(ErrorKind::Degenerated);
         }
@@ -100,11 +105,11 @@ impl<T: Float> ConvexHull<T> {
             let mut mat = Vec::new();
             for point in facet.iter() {
                 let mut row = points[*point].to_vec();
-                row.push(one());
+                row.push(T::one());
                 mat.push(row);
             }
             let mut row = points[rem_point].to_vec();
-            row.push(one());
+            row.push(T::one());
             mat.push(row);
             if det(&mat).is_sign_negative() {
                 facet.swap(0, 1);
@@ -367,7 +372,7 @@ impl<T: Float> ConvexHull<T> {
     pub fn volume(&self) -> T {
         let dim = self.points[0].len();
         let (c_hull_vertices, c_hull_indices) = self.vertices_indices();
-        let mut reference_point = c_hull_vertices[0].to_vec();
+        let mut reference_point = c_hull_vertices[c_hull_indices[0]].to_vec();
         reference_point.push(T::one());
         let mut volume = T::zero();
         for i in (dim..c_hull_indices.len()).step_by(dim) {
@@ -383,7 +388,7 @@ impl<T: Float> ConvexHull<T> {
         let factorial = {
             let mut result = 1;
             let mut n = dim;
-            while n > 0 {
+            while n > 1 {
                 result = result * n;
                 n = n - 1;
             }
@@ -508,7 +513,7 @@ fn select_vertices_for_simplex<T: Float>(points: &[Vec<T>]) -> Vec<usize> {
     vertex_indices_for_simplex
 }
 
-// get visible facet indices from furthest point
+// get visible facet viewed from furthest point
 fn initialize_visible_set<T: Float>(
     points: &[Vec<T>],
     furthest_point_index: usize,
@@ -638,8 +643,7 @@ fn is_degenerate<T: Float>(points: &[Vec<T>]) -> bool {
 }
 
 fn non_degenerate_indices<T: Float>(vertices: &[Vec<T>]) -> Option<Vec<usize>> {
-    // using the Gramschmidt method,
-    // we look for points that are not degenerate for simplex
+    // look for points that are not degenerate for simplex using the Gram-Schmidt method
     let dim = vertices[0].len();
     if dim >= vertices.len() {
         return None;
@@ -750,7 +754,7 @@ fn facet_area<T: Float>(points_of_facet: &[Vec<T>]) -> T {
     let factorial = {
         let mut result = 1;
         let mut n = dim - 1;
-        while n > 0 {
+        while n > 1 {
             result = result * n;
             n = n - 1;
         }
@@ -912,7 +916,24 @@ fn inner_outer_test() {
 }
 
 #[test]
-fn simple_convex_test() {
+fn rectangle_test() {
+    let p1 = vec![2.0, 2.0];
+    let p2 = vec![4.0, 2.0];
+    let p3 = vec![4.0, 4.0];
+    let p4 = vec![2.0, 4.0];
+    let p5 = vec![3.0, 3.0];
+
+    let rect = ConvexHull::try_new(&[p1, p2, p3, p4, p5], None)
+        .unwrap();
+    assert_eq!(rect.area(), 8.0);
+    assert_eq!(rect.volume(), 4.0);
+
+    let (_v, i) = rect.vertices_indices();
+    assert_eq!(i.len(), 4 * 2);
+}
+
+#[test]
+fn octahedron_test() {
     let p1 = vec![1.0, 0.0, 0.0];
     let p2 = vec![0.0, 1.0, 0.0];
     let p3 = vec![0.0, 0.0, 1.0];
@@ -926,7 +947,7 @@ fn simple_convex_test() {
 }
 
 #[test]
-fn translation_test() {
+fn octahedron_translation_test() {
     fn translate(points: &Vec<f64>) -> Vec<f64> {
         let d = vec![10.0, 10.0, 10.0];
         points.iter().zip(d.iter()).map(|(a, b)| *a + *b).collect()
@@ -948,7 +969,7 @@ fn translation_test() {
 }
 
 #[test]
-fn simple_cube_test() {
+fn cube_test() {
     let p1 = vec![1.0, 1.0, 1.0];
     let p2 = vec![1.0, 1.0, -1.0];
     let p3 = vec![1.0, -1.0, 1.0];
