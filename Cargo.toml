@@ -8,6 +8,7 @@ edition = "2018"
 license = "MIT/Apache-2.0"
 repository ="https://github.com/daidanretsu/chull"
 documentation = "https://docs.rs/chull/"
+readme = "README.md"
 
 [dependencies]
 num-traits = "0.2"
