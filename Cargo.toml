@@ -5,7 +5,8 @@ authors = ["daidanretsu<daidanretsu@outlook.jp>"]
 description = "Convex hull approximation"
 keywords = ["convex", "hull", "geo"]
 edition = "2018"
-license = "Apache-2.0"
+license = "MIT/Apache-2.0"
+repository ="https://github.com/daidanretsu/chull"
 
 [dependencies]
 num-traits = "0.2"
