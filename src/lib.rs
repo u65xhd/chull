@@ -1,4 +1,5 @@
 //! Convex hull approximation for rust based on [Quick hull](http://citeseerx.ist.psu.edu/viewdoc/summary;jsessionid=C57E2269B0D64504B97E8469F6A1315D?doi=10.1.1.117.405).
+//! Available in 3-D or 2-D for now.
 //! ## Examples
 //! ```
 //! use chull::ConvexHull;
