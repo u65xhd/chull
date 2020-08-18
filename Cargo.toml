@@ -1,12 +1,13 @@
 [package]
 name = "chull"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["daidanretsu<daidanretsu@outlook.jp>"]
 description = "Convex hull approximation"
 keywords = ["convex", "hull", "geo"]
 edition = "2018"
 license = "MIT/Apache-2.0"
 repository ="https://github.com/daidanretsu/chull"
+documentation = "https://docs.rs/chull/"
 
 [dependencies]
 num-traits = "0.2"
