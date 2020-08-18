@@ -2,7 +2,7 @@
 //! It is available with two-dimensional or three-dimensional for now.
 //! ## Examples
 //! ```
-//! use chull::*;
+//! use chull::ConvexHull;
 //!
 //! let p1 = vec![1.0, 1.0, 1.0];
 //! let p2 = vec![1.0, 1.0, -1.0];
@@ -12,9 +12,11 @@
 //! let p6 = vec![-1.0, 1.0, -1.0];
 //! let p7 = vec![-1.0, -1.0, 1.0];
 //! let p8 = vec![-1.0, -1.0, -1.0];
-//! let (_v, i) = ConvexHull::try_new(&[p1, p2, p3, p4, p5, p6, p7, p8], None)
-//!     .unwrap()
-//!     .vertices_indices();
+//! let p9 = vec![0.0, 0.0, 0.0];
+//! let cube = ConvexHull::try_new(&[p1, p2, p3, p4, p5, p6, p7, p8, p9], None).unwrap();
+//! assert_eq!(cube.volume(), 8.0);
+//! assert_eq!(cube.area(), 24.0);
+//! let (_v,i) = cube.vertices_indices();
 //! assert_eq!(i.len(), 6 * 2 * 3);
 //! ```
 
