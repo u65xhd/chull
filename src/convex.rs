@@ -73,7 +73,7 @@ impl<T: Float> ConvexHull<T> {
             return Err(ErrorKind::WrongDimension);
         }
         // remove nearby points
-        let points = &remove_nearby_points(&points, T::epsilon() * (T::one() + T::one()).powi(3));
+        let points = &remove_nearby_points(&points, T::epsilon() * T::from(15).unwrap());
         if num_points <= dim || is_degenerate(&points) {
             return Err(ErrorKind::Degenerated);
         }
@@ -155,7 +155,7 @@ impl<T: Float> ConvexHull<T> {
                     continue;
                 }
                 let pos = position_from_facet(&self.points, facet, i);
-                if pos > T::epsilon() * (T::one() + T::one()) {
+                if pos > T::epsilon() * T::from(200).unwrap() {
                     facet.outside_points.push((i, pos));
                 }
             }
@@ -258,7 +258,7 @@ impl<T: Float> ConvexHull<T> {
                 for assigned_point_index in &assigned_point_indices {
                     let position =
                         position_from_facet(&self.points, &new_facet, *assigned_point_index);
-                    if position.abs() <= T::epsilon() * (T::one() + T::one()) {
+                    if position.abs() <= T::epsilon() * T::from(200).unwrap() {
                         continue;
                     } else if position > T::zero() {
                         let new_facet = self.facets.get_mut(new_key).unwrap();
@@ -296,7 +296,7 @@ impl<T: Float> ConvexHull<T> {
                         }
                         let pos =
                             position_from_facet(&self.points, new_facet, *outside_point_index);
-                        if pos > T::epsilon() * (T::one() + T::one()) {
+                        if pos > T::epsilon() * T::from(200).unwrap() {
                             new_facet.outside_points.push((*outside_point_index, pos));
                         }
                     }
@@ -533,7 +533,7 @@ fn initialize_visible_set<T: Float>(
         }
         let neighbor = facets.get(&neighbor_key).unwrap();
         let pos = position_from_facet(points, neighbor, furthest_point_index);
-        if pos > T::epsilon() * (T::one() + T::one()) {
+        if pos > T::epsilon() * T::from(200).unwrap() {
             visible_set.insert(neighbor_key);
             neighbor_stack.append(&mut neighbor.neighbor_facets.iter().map(|k| *k).collect());
         }
@@ -635,7 +635,7 @@ fn is_degenerate<T: Float>(points: &[Vec<T>]) -> bool {
         }
         mat.push(row);
     }
-    if det(&mat).abs() <= T::epsilon() * (T::one() + T::one()) {
+    if det(&mat).abs() <= T::epsilon() * T::from(200).unwrap() {
         true
     } else {
         false
@@ -659,7 +659,7 @@ fn non_degenerate_indices<T: Float>(vertices: &[Vec<T>]) -> Option<Vec<usize>> {
         .fold(T::zero(), |sum, x| sum + *x * *x)
         .sqrt();
     let mut j = 1;
-    while norm <= T::epsilon() * (T::one() + T::one()) {
+    while norm <= T::epsilon() * T::from(200).unwrap() {
         j += 1;
         first_axis = vertices[j]
             .iter()
@@ -696,7 +696,7 @@ fn non_degenerate_indices<T: Float>(vertices: &[Vec<T>]) -> Option<Vec<usize>> {
         }
 
         let rem_norm = rem.iter().fold(T::zero(), |sum, x| sum + *x * *x).sqrt();
-        if rem_norm <= T::epsilon() * (T::one() + T::one()).powi(2) {
+        if rem_norm <= T::epsilon() * T::from(200).unwrap() {
             continue;
         }
         let new_axis: Vec<_> = rem.into_iter().map(|x| x / rem_norm).collect();
