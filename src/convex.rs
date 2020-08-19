@@ -73,7 +73,7 @@ impl<T: Float> ConvexHull<T> {
             return Err(ErrorKind::WrongDimension);
         }
         // remove nearby points
-        let points = &remove_nearby_points(&points, T::epsilon() * (T::one() + T::one()).powi(2));
+        let points = &remove_nearby_points(&points, T::epsilon() * (T::one() + T::one()).powi(3));
         if num_points <= dim || is_degenerate(&points) {
             return Err(ErrorKind::Degenerated);
         }
@@ -709,7 +709,7 @@ fn non_degenerate_indices<T: Float>(vertices: &[Vec<T>]) -> Option<Vec<usize>> {
     None
 }
 
-fn remove_nearby_points<T: Float>(points: &[Vec<T>], distance: T) -> Vec<Vec<T>> {
+fn remove_nearby_points<T: Float>(points: &[Vec<T>], squared_distance: T) -> Vec<Vec<T>> {
     let mut points_map = BTreeMap::new();
     let dim = points[0].len();
     let mut kdtree = KdTree::new(dim);
@@ -722,7 +722,7 @@ fn remove_nearby_points<T: Float>(points: &[Vec<T>], distance: T) -> Vec<Vec<T>>
         let mut remove_list = Vec::new();
         live_indices.push(*id);
         for (_near_point_distance, near_point_id) in kdtree
-            .within(&point, distance * distance, &squared_euclidean)
+            .within(&point, squared_distance, &squared_euclidean)
             .unwrap()
         {
             remove_list.push(*near_point_id);
