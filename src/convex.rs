@@ -82,7 +82,7 @@ impl<T: Float> ConvexHull<T> {
             return Err(ErrorKind::Degenerated);
         }
         // create simplex of dim+1 points
-        let mut c_hull = Self::create_simplex(points);
+        let mut c_hull = Self::create_simplex(points)?;
         // main quick hull algorithm
         c_hull.update(max_iter)?;
         // shrink
@@ -90,8 +90,8 @@ impl<T: Float> ConvexHull<T> {
         Ok(c_hull)
     }
 
-    fn create_simplex(points: &[Vec<T>]) -> Self {
-        let indices_set = select_vertices_for_simplex(&points);
+    fn create_simplex(points: &[Vec<T>]) -> Result<Self, ErrorKind> {
+        let indices_set = select_vertices_for_simplex(&points)?;
         let dim = points[0].len();
         let mut facet_add_count = 0;
         let mut facets = BTreeMap::new();
@@ -136,10 +136,10 @@ impl<T: Float> ConvexHull<T> {
                 facet.neighbor_facets.push(*neighbors_key);
             }
         }
-        Self {
+        Ok(Self {
             points: points.to_vec(),
             facets,
-        }
+        })
     }
 
     fn update(&mut self, max_iter: Option<usize>) -> Result<(), ErrorKind> {
@@ -489,7 +489,7 @@ fn min_max_index_each_axis<T: Float>(points: &[Vec<T>]) -> Vec<(usize, usize)> {
     min_index.into_iter().zip(max_index.into_iter()).collect()
 }
 
-fn select_vertices_for_simplex<T: Float>(points: &[Vec<T>]) -> Vec<usize> {
+fn select_vertices_for_simplex<T: Float>(points: &[Vec<T>]) -> Result<Vec<usize>, ErrorKind> {
     // try find the min max point
     let min_max_index_each_axis = min_max_index_each_axis(points);
     let mut vertex_indices_for_simplex = Vec::new();
@@ -509,7 +509,7 @@ fn select_vertices_for_simplex<T: Float>(points: &[Vec<T>]) -> Vec<usize> {
         if let Some(indices) = non_degenerate_indices(points) {
             vertex_indices_for_simplex = indices;
         } else {
-            panic!("degenerate points");
+            return Err(ErrorKind::Degenerated);
         }
     }
     debug_assert_eq!(
@@ -517,7 +517,7 @@ fn select_vertices_for_simplex<T: Float>(points: &[Vec<T>]) -> Vec<usize> {
         vertex_indices_for_simplex.len(),
         "number of simplex's vertices should be dim+1"
     );
-    vertex_indices_for_simplex
+    Ok(vertex_indices_for_simplex)
 }
 
 // get visible facet viewed from furthest point
