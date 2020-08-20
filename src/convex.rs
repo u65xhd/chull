@@ -33,12 +33,13 @@ impl<T: Float> Facet<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ErrorKind {
     Empty,
     LessThanTwoDim,
     Degenerated,
     WrongDimension,
+    RoundOffError(String),
 }
 
 impl fmt::Display for ErrorKind {
@@ -48,6 +49,9 @@ impl fmt::Display for ErrorKind {
             ErrorKind::LessThanTwoDim => write!(f, "less than two dimention"),
             ErrorKind::Degenerated => write!(f, "degenerated"),
             ErrorKind::WrongDimension => write!(f, "wrong dimension"),
+            ErrorKind::RoundOffError(msg) => {
+                write!(f, "erroneous results by roundoff error: {}", msg)
+            }
         }
     }
 }
@@ -80,7 +84,7 @@ impl<T: Float> ConvexHull<T> {
         // create simplex of dim+1 points
         let mut c_hull = Self::create_simplex(points);
         // main quick hull algorithm
-        c_hull.update(max_iter);
+        c_hull.update(max_iter)?;
         // shrink
         c_hull.remove_unused_points();
         Ok(c_hull)
@@ -138,7 +142,7 @@ impl<T: Float> ConvexHull<T> {
         }
     }
 
-    fn update(&mut self, max_iter: Option<usize>) {
+    fn update(&mut self, max_iter: Option<usize>) -> Result<(), ErrorKind> {
         let dim = self.points[0].len();
         let mut facet_add_count = *self.facets.iter().last().map(|(k, _v)| k).unwrap() + 1;
         let mut num_iter = 0;
@@ -184,7 +188,7 @@ impl<T: Float> ConvexHull<T> {
                 &facet,
             );
             // get horizon
-            let horizon = get_horizon(&visible_set, &self.facets, dim);
+            let horizon = get_horizon(&visible_set, &self.facets, dim)?;
             // create new facet
             let mut new_keys = Vec::new();
             for (ridge, unvisible) in horizon {
@@ -194,11 +198,12 @@ impl<T: Float> ConvexHull<T> {
                     new_facet.push(point);
                     assigned_point_indices.insert(point);
                 }
-                debug_assert_eq!(
-                    new_facet.len(),
-                    dim,
-                    "number of new facet's vertices should be dim"
-                );
+                if new_facet.len() != dim {
+                    return Err(ErrorKind::RoundOffError(
+                        "number of new facet's vertices should be dim".to_string(),
+                    ));
+                }
+
                 let mut new_facet = Facet::new(&self.points, &new_facet);
                 new_facet.neighbor_facets.push(unvisible);
                 let new_key = facet_add_count;
@@ -208,10 +213,11 @@ impl<T: Float> ConvexHull<T> {
                 unvisible_faset.neighbor_facets.push(new_key);
                 new_keys.push(new_key);
             }
-            debug_assert!(
-                new_keys.len() >= dim,
-                "number of new facets should be grater than dim"
-            );
+            if new_keys.len() < dim {
+                return Err(ErrorKind::RoundOffError(
+                    "number of new facets should be grater than dim".to_string(),
+                ));
+            }
             // facet link its neighbor
             for (i, key_a) in new_keys.iter().enumerate() {
                 let points_of_new_facet_a: BTreeSet<_> = self
@@ -245,11 +251,11 @@ impl<T: Float> ConvexHull<T> {
                     }
                 }
                 let facet_a = self.facets.get(key_a).unwrap();
-                debug_assert_eq!(
-                    facet_a.neighbor_facets.len(),
-                    dim,
-                    "number of neighbors should be dim"
-                );
+                if facet_a.neighbor_facets.len() != dim {
+                    return Err(ErrorKind::RoundOffError(
+                        "number of neighbors should be dim".to_string(),
+                    ));
+                }
             }
             // check the order of new facet's vertices
             for new_key in &new_keys {
@@ -322,6 +328,7 @@ impl<T: Float> ConvexHull<T> {
                 self.facets.remove(&visible);
             }
         }
+        Ok(())
     }
 
     pub fn add_points(&mut self, points: &[Vec<T>]) -> Result<(), ErrorKind> {
@@ -330,7 +337,7 @@ impl<T: Float> ConvexHull<T> {
         if !is_same_dimension(&self.points) {
             return Err(ErrorKind::WrongDimension);
         }
-        self.update(None);
+        self.update(None)?;
         self.remove_unused_points();
         Ok(())
     }
@@ -545,17 +552,17 @@ fn get_horizon<T: Float>(
     visible_set: &BTreeSet<usize>,
     facets: &BTreeMap<usize, Facet<T>>,
     dim: usize, // assertion use only
-) -> Vec<(Vec<usize>, usize)> {
+) -> Result<Vec<(Vec<usize>, usize)>, ErrorKind> {
     let mut horizon = Vec::new();
     for visible_key in visible_set {
         let visible_facet = facets.get(visible_key).unwrap();
         let points_of_visible_facet: BTreeSet<_> =
             visible_facet.indices.iter().map(|i| *i).collect();
-        debug_assert_eq!(
-            dim,
-            points_of_visible_facet.len(),
-            "number of visible facet's vartices should be dim"
-        );
+        if dim != points_of_visible_facet.len() {
+            return Err(ErrorKind::RoundOffError(
+                "number of visible facet's vartices should be dim".to_string(),
+            ));
+        }
 
         for neighbor_key in &visible_facet.neighbor_facets {
             // if neighbor is unvisible
@@ -563,26 +570,27 @@ fn get_horizon<T: Float>(
                 let unvisible_neighbor = facets.get(neighbor_key).unwrap();
                 let points_of_unvisible_neighbor: BTreeSet<_> =
                     unvisible_neighbor.indices.iter().map(|i| *i).collect();
-                debug_assert_eq!(
-                    dim,
-                    points_of_unvisible_neighbor.len(),
-                    "number of unvisible facet's vartices should be dim"
-                );
+                if dim != points_of_unvisible_neighbor.len() {
+                    return Err(ErrorKind::RoundOffError(
+                        "number of unvisible facet's vartices should be dim".to_string(),
+                    ));
+                }
+
                 let horizon_ridge: Vec<_> = points_of_unvisible_neighbor
                     .intersection(&points_of_visible_facet)
                     .map(|key| *key)
                     .collect();
-                debug_assert_eq!(
-                    dim - 1,
-                    horizon_ridge.len(),
-                    "number of ridge's vartices should be dim-1"
-                );
+                if dim - 1 != horizon_ridge.len() {
+                    return Err(ErrorKind::RoundOffError(
+                        "number of ridge's vartices should be dim-1".to_string(),
+                    ));
+                }
                 horizon.push((horizon_ridge, *neighbor_key));
             }
         }
     }
     debug_assert!(horizon.len() >= dim);
-    horizon
+    Ok(horizon)
 }
 
 fn position_from_facet<T: Float>(points: &[Vec<T>], facet: &Facet<T>, point_index: usize) -> T {
@@ -654,23 +662,18 @@ fn non_degenerate_indices<T: Float>(vertices: &[Vec<T>]) -> Option<Vec<usize>> {
         .zip(vertices[0].iter())
         .map(|(a, b)| *a - *b)
         .collect::<Vec<_>>();
-    let mut norm = first_axis
-        .iter()
-        .fold(T::zero(), |sum, x| sum + *x * *x)
-        .sqrt();
+    let mut sq_norm = first_axis.iter().fold(T::zero(), |sum, x| sum + *x * *x);
     let mut j = 1;
-    while norm <= T::epsilon() * T::from(200).unwrap() {
+    while sq_norm <= T::epsilon() * T::from(200).unwrap() {
         j += 1;
         first_axis = vertices[j]
             .iter()
             .zip(vertices[0].iter())
             .map(|(a, b)| *a - *b)
             .collect();
-        norm = first_axis
-            .iter()
-            .fold(T::zero(), |sum, x| sum + *x * *x)
-            .sqrt();
+        sq_norm = first_axis.iter().fold(T::zero(), |sum, x| sum + *x * *x);
     }
+    let norm = sq_norm.sqrt();
     let first_axis: Vec<_> = first_axis.into_iter().map(|x| x / norm).collect();
     let mut axes = vec![first_axis];
     indices.push(j);
@@ -695,10 +698,11 @@ fn non_degenerate_indices<T: Float>(vertices: &[Vec<T>]) -> Option<Vec<usize>> {
                 .collect();
         }
 
-        let rem_norm = rem.iter().fold(T::zero(), |sum, x| sum + *x * *x).sqrt();
-        if rem_norm <= T::epsilon() * T::from(200).unwrap() {
+        let rem_sq_norm = rem.iter().fold(T::zero(), |sum, x| sum + *x * *x);
+        if rem_sq_norm <= T::epsilon() * T::from(200).unwrap() {
             continue;
         }
+        let rem_norm = rem_sq_norm.sqrt();
         let new_axis: Vec<_> = rem.into_iter().map(|x| x / rem_norm).collect();
         axes.push(new_axis);
         indices.push(i);
@@ -923,8 +927,7 @@ fn rectangle_test() {
     let p4 = vec![2.0, 4.0];
     let p5 = vec![3.0, 3.0];
 
-    let rect = ConvexHull::try_new(&[p1, p2, p3, p4, p5], None)
-        .unwrap();
+    let rect = ConvexHull::try_new(&[p1, p2, p3, p4, p5], None).unwrap();
     assert_eq!(rect.area(), 8.0);
     assert_eq!(rect.volume(), 4.0);
 
