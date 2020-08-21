@@ -589,7 +589,9 @@ fn get_horizon<T: Float>(
             }
         }
     }
-    debug_assert!(horizon.len() >= dim);
+    if horizon.len() < dim{
+        return Err(ErrorKind::RoundOffError("horizon len < dim".to_string()));
+    }
     Ok(horizon)
 }
 
