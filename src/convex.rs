@@ -87,6 +87,9 @@ impl<T: Float> ConvexHull<T> {
         c_hull.update(max_iter)?;
         // shrink
         c_hull.remove_unused_points();
+        if c_hull.points.len() <= dim {
+            return Err(ErrorKind::RoundOffError("degenerate convex hull is generated".to_string()));
+        }
         Ok(c_hull)
     }
 
@@ -279,7 +282,7 @@ impl<T: Float> ConvexHull<T> {
                     }
                 }
                 if degenerate {
-                    panic!("degenerate");
+                    return Err(ErrorKind::RoundOffError("degenerate facet generated".to_string()));
                 }
             }
             // set outside points for each new facets
@@ -339,6 +342,9 @@ impl<T: Float> ConvexHull<T> {
         }
         self.update(None)?;
         self.remove_unused_points();
+        if self.points.len() <= points[0].len() {
+            return Err(ErrorKind::RoundOffError("degenerate convex hull is generated".to_string()));
+        }
         Ok(())
     }
     pub fn vertices_indices(&self) -> (Vec<Vec<T>>, Vec<usize>) {
