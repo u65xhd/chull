@@ -266,12 +266,21 @@ impl<T: Float> ConvexHull<T> {
             for new_key in &new_keys {
                 let new_facet = self.facets.get(new_key).unwrap();
                 let mut degenerate = true;
+                let mut mat = Vec::new();
+                for index in &new_facet.indices{
+                    let mut row = self.points[*index].to_vec();
+                    row.push(T::one());
+                    mat.push(row);
+                }
                 for assigned_point_index in &assigned_point_indices {
-                    let position =
-                        position_from_facet(&self.points, &new_facet, *assigned_point_index);
-                    if position.abs() <= T::epsilon() * T::from(200).unwrap() {
+                    let mut row = self.points[*assigned_point_index].to_vec();
+                    row.push(T::one());
+                    mat.push(row);
+                    let det = det(&mat);
+                    if  det.abs() == T::zero() {
+                        mat.pop();
                         continue;
-                    } else if position > T::zero() {
+                    } else if det < T::zero() {
                         let new_facet = self.facets.get_mut(new_key).unwrap();
                         new_facet.indices.swap(0, 1);
                         new_facet.normal = new_facet.normal.iter().map(|x| -(*x)).collect();
