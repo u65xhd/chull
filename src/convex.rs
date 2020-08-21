@@ -343,11 +343,7 @@ impl<T: Float> ConvexHull<T> {
                 self.facets.remove(&visible);
             }
         }
-        if self.volume() < T::epsilon(){
-            Err(ErrorKind::RoundOffError("volume zero".to_string()))
-        }else{
-            Ok(())
-        }
+        Ok(())
     }
 
     pub fn add_points(&mut self, points: &[Vec<T>]) -> Result<(), ErrorKind> {
