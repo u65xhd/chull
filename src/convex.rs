@@ -87,6 +87,10 @@ impl<T: Float> ConvexHull<T> {
         c_hull.update(max_iter)?;
         // shrink
         c_hull.remove_unused_points();
+        if c_hull.points.len() <= dim {
+            //degenerate convex hull is generated
+            return Err(ErrorKind::Degenerated);
+        }
         Ok(c_hull)
     }
 
@@ -115,7 +119,7 @@ impl<T: Float> ConvexHull<T> {
             let mut row = points[rem_point].to_vec();
             row.push(T::one());
             mat.push(row);
-            if det(&mat).is_sign_negative() {
+            if det(&mat) < T::zero() {
                 facet.swap(0, 1);
             }
             debug_assert_eq!(dim, facet.len(), "number of facet's vartices should be dim");
@@ -136,10 +140,11 @@ impl<T: Float> ConvexHull<T> {
                 facet.neighbor_facets.push(*neighbors_key);
             }
         }
-        Ok(Self {
+        let simplex = Self {
             points: points.to_vec(),
             facets,
-        })
+        };
+        Ok(simplex)
     }
 
     fn update(&mut self, max_iter: Option<usize>) -> Result<(), ErrorKind> {
@@ -279,7 +284,8 @@ impl<T: Float> ConvexHull<T> {
                     }
                 }
                 if degenerate {
-                    panic!("degenerate");
+                    //degenerate facet was generated
+                    return Err(ErrorKind::Degenerated);
                 }
             }
             // set outside points for each new facets
@@ -339,6 +345,10 @@ impl<T: Float> ConvexHull<T> {
         }
         self.update(None)?;
         self.remove_unused_points();
+        if self.points.len() <= points[0].len() {
+            //degenerate convex hull is generated
+            return Err(ErrorKind::Degenerated);
+        }
         Ok(())
     }
     pub fn vertices_indices(&self) -> (Vec<Vec<T>>, Vec<usize>) {
