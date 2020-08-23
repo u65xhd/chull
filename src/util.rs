@@ -1,7 +1,16 @@
-use num_traits::NumOps;
-use num_traits::Zero;
+use bigdecimal::BigDecimal;
+use num_bigint::BigInt;
+use kdtree::distance::squared_euclidean;
+use kdtree::KdTree;
+use num_traits::{Float, NumOps, Zero};
+use std::collections::BTreeMap;
+use std::error::Error;
+use std::fmt::Display;
+use std::str::FromStr;
 
-pub (crate) fn min_max_index_each_axis<T:Clone+Zero+PartialOrd>(points: &[Vec<T>]) -> Vec<(usize, usize)> {
+pub(crate) fn min_max_index_each_axis<T: Clone + Zero + PartialOrd>(
+    points: &[Vec<T>],
+) -> Vec<(usize, usize)> {
     let dim = points[0].len();
     let mut min_index = vec![0; dim];
     let mut max_index = vec![0; dim];
@@ -9,11 +18,11 @@ pub (crate) fn min_max_index_each_axis<T:Clone+Zero+PartialOrd>(points: &[Vec<T>
     let mut max = vec![T::zero(); dim];
     for (index, point) in points.iter().enumerate() {
         for (j, element) in point.iter().enumerate() {
-            if index ==0 || *element < min[j] {
+            if index == 0 || *element < min[j] {
                 min[j] = element.clone();
                 min_index[j] = index;
             }
-            if index ==0 || *element > max[j] {
+            if index == 0 || *element > max[j] {
                 max[j] = element.clone();
                 max_index[j] = index;
             }
@@ -22,7 +31,7 @@ pub (crate) fn min_max_index_each_axis<T:Clone+Zero+PartialOrd>(points: &[Vec<T>
     min_index.into_iter().zip(max_index.into_iter()).collect()
 }
 
-pub (crate) fn is_same_dimension<T>(points: &[Vec<T>]) -> bool {
+pub(crate) fn is_same_dimension<T>(points: &[Vec<T>]) -> bool {
     if points.len() == 0 {
         return true;
     }
@@ -34,8 +43,7 @@ pub (crate) fn is_same_dimension<T>(points: &[Vec<T>]) -> bool {
     }
 }
 
-
-pub (crate) fn det<T: NumOps + Clone>(m: &[Vec<T>]) -> T {
+pub(crate) fn det<T: NumOps + Clone>(m: &[Vec<T>]) -> T {
     let row_dim = m.len();
     let column_dim = m[0].len();
     assert_eq!(row_dim, column_dim);
@@ -91,6 +99,65 @@ fn det_4x4<T: NumOps + Clone>(m: &[Vec<T>]) -> T {
             - m[0][3].clone() * m[1][2].clone() * m[2][1].clone()
             - m[0][2].clone() * m[1][1].clone() * m[2][3].clone()
             - m[0][1].clone() * m[1][3].clone() * m[2][2].clone())
+}
+
+pub (crate) fn remove_nearby_points<T>(
+    points: &[Vec<T>],
+    squared_distance: T,
+) -> Result<Vec<Vec<T>>, Box<dyn Error>>
+where
+    T: Float,
+{
+    let mut points_map = BTreeMap::new();
+    let dim = points[0].len();
+    let mut kdtree = KdTree::new(dim);
+    for (i, point) in points.iter().enumerate() {
+        points_map.insert(i, point);
+        kdtree.add(point, i)?;
+    }
+    let mut live_indices = Vec::new();
+    while let Some((id, point)) = points_map.iter().next() {
+        let mut remove_list = Vec::new();
+        live_indices.push(*id);
+        for (_near_point_distance, near_point_id) in
+            kdtree.within(&point, squared_distance, &squared_euclidean)?
+        {
+            remove_list.push(*near_point_id);
+        }
+        for key in remove_list {
+            points_map.remove(&key);
+        }
+    }
+    Ok(live_indices
+        .into_iter()
+        .map(|i| points[i].to_vec())
+        .collect())
+}
+
+pub (crate) fn float_to_big_decimal<T: Float>(
+    float: T,
+) -> Result<BigDecimal, Box<dyn Error>> {
+    let sign = if float.is_sign_negative(){num_bigint::Sign::Minus}
+    else if float.is_sign_positive(){num_bigint::Sign::Plus}
+    else{num_bigint::Sign::NoSign};
+    let int = float.trunc();
+    unimplemented!()
+    // /let after_decimal = (float-int)*(10_000_000_000u32).into();
+    // /let decimal = BigDecimal::new(BigInt::new(sign, vec![int.into(), after_decimal.into()]), 10);
+    // /Ok(decimal)
+}
+
+pub (crate) fn big_decimal_to_float<T: Float>(
+    big_decimal: BigDecimal,
+) -> Result<T, Box<dyn Error>> {
+    //let sign = if float.is_sign_negative(){num_bigint::Sign::Minus}
+    //else if float.is_sign_positive(){num_bigint::Sign::Plus}
+    //else{num_bigint::Sign::NoSign};
+    //let int = float.trunc();
+    unimplemented!()
+    // /let after_decimal = (float-int)*(10_000_000_000u32).into();
+    // /let decimal = BigDecimal::new(BigInt::new(sign, vec![int.into(), after_decimal.into()]), 10);
+    // /Ok(decimal)
 }
 
 

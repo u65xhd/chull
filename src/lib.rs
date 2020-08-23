@@ -21,7 +21,8 @@
 //! ```
 
 pub mod convex;
-pub mod decimal;
 pub (crate) mod util;
+pub mod float;
+pub mod bigdecimal;
+pub mod traits;
 pub use convex::*;
-pub use decimal::*;

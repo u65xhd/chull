@@ -1,28 +1,34 @@
-use kdtree::distance::squared_euclidean;
-use kdtree::KdTree;
-use num_traits::Float;
+use super::traits::*;
+use super::util::*;
+use super::bigdecimal::*;
+use super::float::*;
+
+use num_traits::{NumOps, One, Zero, Float};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
-use super::util::*;
+
 
 #[derive(Debug, Clone)]
-pub (crate) struct Facet<T> {
-    pub (crate) indices: Vec<usize>,
-    pub (crate) outside_points: Vec<(usize, T)>,
-    pub (crate) neighbor_facets: Vec<usize>,
-    pub (crate) normal: Vec<T>,
-    pub (crate) origin: T,
+pub(crate) struct Facet<T> {
+    pub(crate) indices: Vec<usize>,
+    pub(crate) outside_points: Vec<(usize, T)>,
+    pub(crate) neighbor_facets: Vec<usize>,
+    pub(crate) normal: Vec<T>,
+    pub(crate) origin: T,
 }
 
-impl<T: Float> Facet<T> {
+impl<T> Facet<T>
+where
+    T: Clone + NumOps + Zero + One + Sqrt + ApproxSign,
+{
     fn new(points: &[Vec<T>], indices: &[usize]) -> Self {
         let points_of_facet: Vec<_> = indices.iter().map(|i| points[*i].to_vec()).collect();
         let normal = facet_normal(&points_of_facet);
         let origin = normal
             .iter()
             .zip(points_of_facet[0].iter())
-            .map(|(a, b)| *a * *b)
+            .map(|(a, b)| a.clone() * b.clone())
             .fold(T::zero(), |sum, x| sum + x);
         Self {
             indices: indices.to_vec(),
@@ -60,50 +66,39 @@ impl Error for ErrorKind {}
 
 #[derive(Clone, Debug)]
 pub struct ConvexHull<T> {
-    pub (crate) points: Vec<Vec<T>>,
-    pub (crate) facets: BTreeMap<usize, Facet<T>>,
-}
-
-impl<T:Clone> ConvexHull<T>{
-    pub fn vertices_indices(&self) -> (Vec<Vec<T>>, Vec<usize>) {
-        let mut indices = Vec::new();
-        for facet in self.facets.values() {
-            for i in &facet.indices {
-                indices.push(*i);
-            }
-        }
-        (self.points.to_vec(), indices)
-    }
-    pub (crate) fn remove_unused_points(&mut self) {
-        let mut indices_list = BTreeSet::new();
-        for facet in self.facets.values() {
-            for i in &facet.indices {
-                indices_list.insert(*i);
-            }
-        }
-        let indices_list: BTreeMap<usize, usize> = indices_list
-            .into_iter()
-            .enumerate()
-            .map(|(i, index)| (index, i))
-            .collect();
-        for facet in self.facets.values_mut() {
-            let mut new_facet_indices = Vec::new();
-            for i in &facet.indices {
-                new_facet_indices.push(*indices_list.get(&i).unwrap());
-            }
-            std::mem::swap(&mut facet.indices, &mut new_facet_indices);
-        }
-        let mut vertices = Vec::new();
-        for (index, _i) in indices_list.iter() {
-            let point = self.points[*index].to_vec();
-            vertices.push(point);
-        }
-        self.points = vertices;
-    }
+    pub(crate) points: Vec<Vec<T>>,
+    pub(crate) facets: BTreeMap<usize, Facet<T>>,
 }
 
 impl<T: Float> ConvexHull<T> {
-    pub fn try_new(points: &[Vec<T>], max_iter: Option<usize>) -> Result<Self, ErrorKind> {
+    ///try to create a convex hull using BigDecimal to avoid rounoff errors, but the calculation is slower.
+    pub fn try_new_with_precision(points: &[Vec<T>], max_iter: impl Into<Option<usize>>) -> Result<Self, ErrorKind>{
+        let points = &remove_nearby_points(&points, T::epsilon()).unwrap();
+        let mut bd_points = Vec::new();
+        for point in points{
+            let mut bd_point= Vec::new();
+            for a in point{
+                bd_point.push(BDWrapper(float_to_big_decimal(*a).unwrap()));
+            }
+            bd_points.push(bd_point);
+        }
+        let c_hull_bd = ConvexHull::try_new(&bd_points, max_iter)?;
+        let mut vertices = Vec::new();
+        for p in c_hull_bd.points{
+            for e in p{
+                vertices.push(e.0);
+            }
+        }
+        unimplemented!()
+
+    }
+}
+
+impl<T> ConvexHull<T>
+where
+    T: PartialOrd + Clone + NumOps + Zero + One + Sqrt + ApproxSign,
+{
+    pub fn try_new(points: &[Vec<T>], max_iter: impl Into<Option<usize>>) -> Result<Self, ErrorKind> {
         let num_points = points.len();
         if num_points == 0 {
             return Err(ErrorKind::Empty);
@@ -115,8 +110,7 @@ impl<T: Float> ConvexHull<T> {
         if !is_same_dimension(&points) {
             return Err(ErrorKind::WrongDimension);
         }
-        // remove nearby points
-        let points = &remove_nearby_points(&points, T::epsilon() * T::from(15).unwrap());
+
         if num_points <= dim || is_degenerate(&points) {
             return Err(ErrorKind::Degenerated);
         }
@@ -186,7 +180,7 @@ impl<T: Float> ConvexHull<T> {
         Ok(simplex)
     }
 
-    fn update(&mut self, max_iter: Option<usize>) -> Result<(), ErrorKind> {
+    fn update(&mut self, max_iter: impl Into<Option<usize>>) -> Result<(), ErrorKind> {
         let dim = self.points[0].len();
         let mut facet_add_count = *self.facets.iter().last().map(|(k, _v)| k).unwrap() + 1;
         let mut num_iter = 0;
@@ -203,11 +197,16 @@ impl<T: Float> ConvexHull<T> {
                     continue;
                 }
                 let pos = position_from_facet(&self.points, facet, i);
-                if pos > T::epsilon() * T::from(200).unwrap() {
+                if pos.approx_sign() == Sign::Plus {
                     facet.outside_points.push((i, pos));
                 }
             }
         }
+        let (max_iter, truncate) = if let Some(iter) = max_iter.into(){
+            (iter,true)
+        }else{
+            (0,false)
+        };
         // main algorithm of quick hull
         while let Some((key, facet)) = self
             .facets
@@ -215,10 +214,8 @@ impl<T: Float> ConvexHull<T> {
             .find(|(_, facet)| !facet.outside_points.is_empty())
             .map(|(a, b)| (*a, b.clone()))
         {
-            if let Some(max_iter) = max_iter {
-                if num_iter >= max_iter {
-                    break;
-                }
+            if truncate && num_iter >= max_iter {
+                break;
             }
             num_iter += 1;
             // select the furthest point
@@ -308,13 +305,17 @@ impl<T: Float> ConvexHull<T> {
                 for assigned_point_index in &assigned_point_indices {
                     let position =
                         position_from_facet(&self.points, &new_facet, *assigned_point_index);
-                    if position.abs() <= T::epsilon() * T::from(200).unwrap() {
+                    if position.approx_sign() == Sign::NoSign {
                         continue;
                     } else if position > T::zero() {
                         let new_facet = self.facets.get_mut(new_key).unwrap();
                         new_facet.indices.swap(0, 1);
-                        new_facet.normal = new_facet.normal.iter().map(|x| -(*x)).collect();
-                        new_facet.origin = -new_facet.origin;
+                        new_facet.normal = new_facet
+                            .normal
+                            .iter()
+                            .map(|x| T::zero() - x.clone())
+                            .collect();
+                        new_facet.origin = T::zero() - new_facet.origin.clone();
                         degenerate = false;
                         break;
                     } else {
@@ -347,7 +348,7 @@ impl<T: Float> ConvexHull<T> {
                         }
                         let pos =
                             position_from_facet(&self.points, new_facet, *outside_point_index);
-                        if pos > T::epsilon() * T::from(200).unwrap() {
+                        if pos.approx_sign() == Sign::Plus {
                             new_facet.outside_points.push((*outside_point_index, pos));
                         }
                     }
@@ -390,7 +391,41 @@ impl<T: Float> ConvexHull<T> {
         }
         Ok(())
     }
-
+    pub fn vertices_indices(&self) -> (Vec<Vec<T>>, Vec<usize>) {
+        let mut indices = Vec::new();
+        for facet in self.facets.values() {
+            for i in &facet.indices {
+                indices.push(*i);
+            }
+        }
+        (self.points.to_vec(), indices)
+    }
+    pub(crate) fn remove_unused_points(&mut self) {
+        let mut indices_list = BTreeSet::new();
+        for facet in self.facets.values() {
+            for i in &facet.indices {
+                indices_list.insert(*i);
+            }
+        }
+        let indices_list: BTreeMap<usize, usize> = indices_list
+            .into_iter()
+            .enumerate()
+            .map(|(i, index)| (index, i))
+            .collect();
+        for facet in self.facets.values_mut() {
+            let mut new_facet_indices = Vec::new();
+            for i in &facet.indices {
+                new_facet_indices.push(*indices_list.get(&i).unwrap());
+            }
+            std::mem::swap(&mut facet.indices, &mut new_facet_indices);
+        }
+        let mut vertices = Vec::new();
+        for (index, _i) in indices_list.iter() {
+            let point = self.points[*index].to_vec();
+            vertices.push(point);
+        }
+        self.points = vertices;
+    }
     pub fn volume(&self) -> T {
         let dim = self.points[0].len();
         let (c_hull_vertices, c_hull_indices) = self.vertices_indices();
@@ -408,15 +443,17 @@ impl<T: Float> ConvexHull<T> {
             volume = volume + det(&mat);
         }
         let factorial = {
-            let mut result = 1;
+            let mut result = T::one();
+            let mut m = T::one()+T::one();
             let mut n = dim;
             while n > 1 {
-                result = result * n;
+                result = result * m.clone();
                 n = n - 1;
+                m = m + T::one();
             }
             result
         };
-        volume / T::from(factorial).unwrap()
+        volume / factorial
     }
     pub fn area(&self) -> T {
         let dim = self.points[0].len();
@@ -441,7 +478,7 @@ impl<T: Float> ConvexHull<T> {
             .normal
             .iter()
             .zip(direction.iter())
-            .map(|(a, b)| *a * *b)
+            .map(|(a, b)| a.clone() * b.clone())
             .fold(T::zero(), |sum, x| sum + x);
         let mut max_dot = dot;
         let mut max_dot_facet_key = facet_key;
@@ -453,7 +490,7 @@ impl<T: Float> ConvexHull<T> {
                     .normal
                     .iter()
                     .zip(direction.iter())
-                    .map(|(a, b)| *a * *b)
+                    .map(|(a, b)| a.clone() * b.clone())
                     .fold(T::zero(), |sum, x| sum + x);
                 if max_dot < neighbor_dot {
                     max_dot = neighbor_dot;
@@ -466,15 +503,15 @@ impl<T: Float> ConvexHull<T> {
                 facet_key = max_dot_facet_key;
             }
         }
-        let mut max = T::neg_infinity();
+        let mut max = T::zero();
         let mut max_index = 0;
-        for index in &self.facets[&facet_key].indices {
+        for (j, index) in self.facets[&facet_key].indices.iter().enumerate() {
             let dot = self.points[*index]
                 .iter()
                 .zip(direction.iter())
-                .map(|(a, b)| *a * *b)
+                .map(|(a, b)| a.clone() * b.clone())
                 .fold(T::zero(), |sum, x| sum + x);
-            if max < dot {
+            if j == 0 || max < dot {
                 max = dot;
                 max_index = *index;
             }
@@ -483,7 +520,10 @@ impl<T: Float> ConvexHull<T> {
     }
 }
 
-fn select_vertices_for_simplex<T: Float>(points: &[Vec<T>]) -> Result<Vec<usize>, ErrorKind> {
+fn select_vertices_for_simplex<T>(points: &[Vec<T>]) -> Result<Vec<usize>, ErrorKind>
+where
+    T: PartialOrd + Clone + NumOps + Zero + One + Sqrt + ApproxSign,
+{
     // try find the min max point
     let min_max_index_each_axis = min_max_index_each_axis(points);
     let mut vertex_indices_for_simplex = Vec::new();
@@ -515,13 +555,16 @@ fn select_vertices_for_simplex<T: Float>(points: &[Vec<T>]) -> Result<Vec<usize>
 }
 
 // get visible facet viewed from furthest point
-fn initialize_visible_set<T: Float>(
+fn initialize_visible_set<T>(
     points: &[Vec<T>],
     furthest_point_index: usize,
     facets: &BTreeMap<usize, Facet<T>>,
     faset_key: usize,
     facet: &Facet<T>,
-) -> BTreeSet<usize> {
+) -> BTreeSet<usize>
+where
+    T: Clone + NumOps + Zero + One + Sqrt + ApproxSign,
+{
     let mut visible_set = BTreeSet::new();
     visible_set.insert(faset_key);
     let mut neighbor_stack: Vec<_> = facet.neighbor_facets.iter().map(|k| *k).collect();
@@ -534,7 +577,7 @@ fn initialize_visible_set<T: Float>(
         }
         let neighbor = facets.get(&neighbor_key).unwrap();
         let pos = position_from_facet(points, neighbor, furthest_point_index);
-        if pos > T::epsilon() * T::from(200).unwrap() {
+        if pos.approx_sign() == Sign::Plus {
             visible_set.insert(neighbor_key);
             neighbor_stack.append(&mut neighbor.neighbor_facets.iter().map(|k| *k).collect());
         }
@@ -542,11 +585,14 @@ fn initialize_visible_set<T: Float>(
     visible_set
 }
 
-fn get_horizon<T: Float>(
+fn get_horizon<T>(
     visible_set: &BTreeSet<usize>,
     facets: &BTreeMap<usize, Facet<T>>,
     dim: usize, // assertion use only
-) -> Result<Vec<(Vec<usize>, usize)>, ErrorKind> {
+) -> Result<Vec<(Vec<usize>, usize)>, ErrorKind>
+where
+    T: Clone + NumOps + Zero + One + Sqrt + ApproxSign,
+{
     let mut horizon = Vec::new();
     for visible_key in visible_set {
         let visible_facet = facets.get(visible_key).unwrap();
@@ -583,26 +629,31 @@ fn get_horizon<T: Float>(
             }
         }
     }
-    if horizon.len() < dim{
+    if horizon.len() < dim {
         return Err(ErrorKind::RoundOffError("horizon len < dim".to_string()));
     }
     Ok(horizon)
 }
 
-fn position_from_facet<T: Float>(points: &[Vec<T>], facet: &Facet<T>, point_index: usize) -> T {
+fn position_from_facet<T>(points: &[Vec<T>], facet: &Facet<T>, point_index: usize) -> T
+where
+    T: Clone + NumOps + Zero + One + Sqrt + ApproxSign,
+{
     let point = points[point_index].to_vec();
-    let origin = facet.origin;
+    let origin = facet.origin.clone();
     let pos = facet
         .normal
         .iter()
         .zip(point.iter())
-        .map(|(a, b)| *a * *b)
+        .map(|(a, b)| a.clone() * b.clone())
         .fold(T::zero(), |sum, x| sum + x);
     pos - origin
 }
 
-
-fn is_degenerate<T: Float>(points: &[Vec<T>]) -> bool {
+fn is_degenerate<T>(points: &[Vec<T>]) -> bool
+where
+    T: Clone + NumOps + Zero + One + Sqrt + ApproxSign,
+{
     let dim = points[0].len();
     let ex_vec: Vec<Vec<_>> = points
         .iter()
@@ -622,20 +673,23 @@ fn is_degenerate<T: Float>(points: &[Vec<T>]) -> bool {
         for j in 0..dim + 1 {
             let mut c = T::zero();
             for k in 0..num {
-                c = c + ex_vec[k][i] * ex_vec[k][j];
+                c = c + ex_vec[k][i].clone() * ex_vec[k][j].clone();
             }
             row.push(c);
         }
         mat.push(row);
     }
-    if det(&mat).abs() <= T::epsilon() * T::from(200).unwrap() {
+    if det(&mat).approx_sign() == Sign::NoSign {
         true
     } else {
         false
     }
 }
 
-fn non_degenerate_indices<T: Float>(vertices: &[Vec<T>]) -> Option<Vec<usize>> {
+fn non_degenerate_indices<T>(vertices: &[Vec<T>]) -> Option<Vec<usize>>
+where
+    T: Clone + NumOps + Zero + One + Sqrt + ApproxSign,
+{
     // look for points that are not degenerate for simplex using the Gram-Schmidt method
     let dim = vertices[0].len();
     if dim >= vertices.len() {
@@ -645,50 +699,63 @@ fn non_degenerate_indices<T: Float>(vertices: &[Vec<T>]) -> Option<Vec<usize>> {
     let mut first_axis = vertices[1]
         .iter()
         .zip(vertices[0].iter())
-        .map(|(a, b)| *a - *b)
+        .map(|(a, b)| a.clone() - b.clone())
         .collect::<Vec<_>>();
-    let mut sq_norm = first_axis.iter().fold(T::zero(), |sum, x| sum + *x * *x);
+    let mut sq_norm = first_axis
+        .iter()
+        .fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
     let mut j = 1;
-    while sq_norm <= T::epsilon() * T::from(200).unwrap() {
+    while sq_norm.approx_sign() == Sign::NoSign {
         j += 1;
         first_axis = vertices[j]
             .iter()
             .zip(vertices[0].iter())
-            .map(|(a, b)| *a - *b)
+            .map(|(a, b)| a.clone() - b.clone())
             .collect();
-        sq_norm = first_axis.iter().fold(T::zero(), |sum, x| sum + *x * *x);
+        sq_norm = first_axis
+            .iter()
+            .fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
     }
-    let norm = sq_norm.sqrt();
-    let first_axis: Vec<_> = first_axis.into_iter().map(|x| x / norm).collect();
+    //let norm = sq_norm.sqrt().unwrap();
+    //let first_axis: Vec<_> = first_axis.into_iter().map(|x| x / norm.clone()).collect();
     let mut axes = vec![first_axis];
     indices.push(j);
     for i in j + 1..vertices.len() {
         let vector = vertices[i]
             .iter()
             .zip(vertices[0].iter())
-            .map(|(a, b)| *a - *b);
-        let norm = vector.clone().fold(T::zero(), |sum, x| sum + x * x).sqrt();
-        let unit_vector: Vec<_> = vector.map(|x| x / norm).collect();
-        let mut rem = unit_vector.to_vec();
+            .map(|(a, b)| a.clone() - b.clone());
+        let sq_norm = vector
+            .clone()
+            .fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
+        if sq_norm.approx_sign() == Sign::NoSign {
+            continue;
+        }
+        //let norm = sq_norm.sqrt().unwrap();
+        //let unit_vector: Vec<_> = vector.map(|x| x / norm.clone()).collect();
+        let mut rem: Vec<_> = vector.clone().collect();
         for axis in &axes {
+            let axis_sq_norm = axis.iter().fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
             let coef = axis
                 .iter()
-                .zip(unit_vector.iter())
-                .map(|(a, b)| *a * *b)
-                .fold(T::zero(), |sum, x| sum + x);
+                .zip(vector.clone())
+                .map(|(a, b)| a.clone() * b.clone())
+                .fold(T::zero(), |sum, x| sum + x)/axis_sq_norm;
             rem = rem
                 .iter()
                 .zip(axis.iter())
-                .map(|(rem, axis)| *rem - coef * *axis)
+                .map(|(rem, axis)| rem.clone() - coef.clone() * axis.clone())
                 .collect();
         }
 
-        let rem_sq_norm = rem.iter().fold(T::zero(), |sum, x| sum + *x * *x);
-        if rem_sq_norm <= T::epsilon() * T::from(200).unwrap() {
+        let rem_sq_norm = rem
+            .iter()
+            .fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
+        if rem_sq_norm.approx_sign() == Sign::NoSign {
             continue;
         }
-        let rem_norm = rem_sq_norm.sqrt();
-        let new_axis: Vec<_> = rem.into_iter().map(|x| x / rem_norm).collect();
+        //let rem_norm = rem_sq_norm.sqrt().unwrap();
+        let new_axis = rem;//.iter().map(|x| x.clone()/rem_norm.clone()).collect();
         axes.push(new_axis);
         indices.push(i);
         if axes.len() == dim {
@@ -698,35 +765,10 @@ fn non_degenerate_indices<T: Float>(vertices: &[Vec<T>]) -> Option<Vec<usize>> {
     None
 }
 
-fn remove_nearby_points<T: Float>(points: &[Vec<T>], squared_distance: T) -> Vec<Vec<T>> {
-    let mut points_map = BTreeMap::new();
-    let dim = points[0].len();
-    let mut kdtree = KdTree::new(dim);
-    for (i, point) in points.iter().enumerate() {
-        points_map.insert(i, point);
-        kdtree.add(point, i).unwrap();
-    }
-    let mut live_indices = Vec::new();
-    while let Some((id, point)) = points_map.iter().next() {
-        let mut remove_list = Vec::new();
-        live_indices.push(*id);
-        for (_near_point_distance, near_point_id) in kdtree
-            .within(&point, squared_distance, &squared_euclidean)
-            .unwrap()
-        {
-            remove_list.push(*near_point_id);
-        }
-        for key in remove_list {
-            points_map.remove(&key);
-        }
-    }
-    live_indices
-        .into_iter()
-        .map(|i| points[i].to_vec())
-        .collect()
-}
-
-fn facet_area<T: Float>(points_of_facet: &[Vec<T>]) -> T {
+fn facet_area<T>(points_of_facet: &[Vec<T>]) -> T
+where
+    T: Clone + NumOps + Zero + One + Sqrt+ PartialOrd,
+{
     let num_points = points_of_facet.len();
     let dim = points_of_facet[0].len();
     debug_assert_eq!(num_points, dim);
@@ -734,25 +776,34 @@ fn facet_area<T: Float>(points_of_facet: &[Vec<T>]) -> T {
     for i in 1..num_points {
         let row: Vec<_> = points_of_facet[i]
             .iter()
-            .zip(points_of_facet[i - 1].iter())
-            .map(|(a, b)| *a - *b)
+            .zip(points_of_facet[i-1].iter())
+            .map(|(a, b)| a.clone() - b.clone())
             .collect();
         mat.push(row);
     }
     mat.push(facet_normal(points_of_facet));
     let factorial = {
-        let mut result = 1;
-        let mut n = dim - 1;
+        let mut result = T::one();
+        let mut m = T::one()+T::one();
+        let mut n = dim;
         while n > 1 {
-            result = result * n;
+            result = result * m.clone();
             n = n - 1;
+            m = m + T::one();
         }
         result
     };
-    det(&mat).abs() / T::from(factorial).unwrap()
+    let mut det = det(&mat);
+    if det < T::zero(){
+        det = T::zero()-det;
+    }
+    det / factorial
 }
 
-fn facet_normal<T: Float>(points_of_facet: &[Vec<T>]) -> Vec<T> {
+fn facet_normal<T>(points_of_facet: &[Vec<T>]) -> Vec<T>
+where
+    T: Clone + NumOps + Zero + One + Sqrt,
+{
     let num_points = points_of_facet.len();
     let dim = points_of_facet[0].len();
     debug_assert_eq!(num_points, dim);
@@ -761,7 +812,7 @@ fn facet_normal<T: Float>(points_of_facet: &[Vec<T>]) -> Vec<T> {
         let vector: Vec<_> = points_of_facet[i]
             .iter()
             .zip(points_of_facet[i - 1].iter())
-            .map(|(a, b)| *a - *b)
+            .map(|(a, b)| a.clone() - b.clone())
             .collect();
         vectors.push(vector);
     }
@@ -775,16 +826,20 @@ fn facet_normal<T: Float>(points_of_facet: &[Vec<T>]) -> Vec<T> {
                 if j == i {
                     continue;
                 }
-                column.push(*element);
+                column.push(element.clone());
             }
             mat.push(column);
         }
         let cofactor = det(&mat);
-        normal.push(sign * cofactor);
-        sign = -sign;
+        normal.push(sign.clone() * cofactor);
+        sign = T::zero() - sign;
     }
-    let norm = normal.iter().fold(T::zero(), |a, &x| a + x * x).sqrt();
-    let normalized_normal = normal.into_iter().map(|x| x / norm).collect();
+    let norm = normal
+        .iter()
+        .fold(T::zero(), |a, x| a + x.clone() * x.clone())
+        .sqrt()
+        .unwrap();
+    let normalized_normal = normal.into_iter().map(|x| x / norm.clone()).collect();
     normalized_normal
 }
 
