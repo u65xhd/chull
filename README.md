@@ -5,7 +5,7 @@
 Convex hull approximation for rust based on [Quick hull](http://citeseerx.ist.psu.edu/viewdoc/summary;jsessionid=C57E2269B0D64504B97E8469F6A1315D?doi=10.1.1.117.405).
 Available in 3-D or 2-D for now.
 ## Examples
-```
+```rust
 use chull::ConvexHull;
 let p1 = vec![1.0, 1.0, 1.0];
 let p2 = vec![1.0, 1.0, -1.0];
@@ -26,7 +26,7 @@ assert_eq!(i.len(), 6 * 2 * 3);
 ```
 ## If the results are inaccurate
 If the calculation results are inaccurate due to rounding errors, an error may occur. In such cases, the use of integer types such as [```i128```](https://doc.rust-lang.org/std/primitive.i128.html) or [```BigDecimal```](https://docs.rs/bigdecimal/) may improve the result.
-```
+```rust
 use chull::ConvexHull;
 let p1 = vec![1.0, 0.0, 0.0];
 let p2 = vec![0.0, 0.001, 0.0];
