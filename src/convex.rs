@@ -128,8 +128,7 @@ where
             let mut row = points[rem_point].to_vec();
             row.push(T::one());
             mat.push(row);
-            let volume = det(&mat);
-            if volume < T::zero() {
+            if det(&mat) < T::zero() {
                 facet.swap(0, 1);
             }
             if dim != facet.len() {
@@ -178,26 +177,13 @@ where
         }
         // initialize outside points
         for (_key, facet) in &mut self.facets.iter_mut() {
-            let mut mat = Vec::new();
-            for index in &facet.indices{
-                let mut row = self.points[*index].to_vec();
-                row.push(T::one());
-                mat.push(row);
-            }
-            for (i, point) in self.points.iter().enumerate() {
+            for (i, _point) in self.points.iter().enumerate() {
                 if assigned_point_indices.contains(&i) {
                     continue;
                 }
-                //let pos = position_from_facet(&self.points, facet, i);
-                let mut row = point.to_vec();
-                row.push(T::one());
-                mat.push(row);
-                let volume = det(&mat);
-                if volume < T::zero()-threshold.clone() {
-                    facet.outside_points.push((i, T::zero()-volume));
-                    mat.pop();
-                }else{
-                    mat.pop();
+                let pos = position_from_facet(&self.points, facet, i);
+                if pos > threshold.clone() {
+                    facet.outside_points.push((i, pos));
                 }
             }
         }
@@ -302,25 +288,14 @@ where
             for new_key in &new_keys {
                 let new_facet = self.facets.get(new_key).unwrap();
                 let mut degenerate = true;
-                let mut mat = Vec::new();
-                for index in &new_facet.indices{
-                    let mut row = self.points[*index].to_vec();
-                    row.push(T::one());
-                    mat.push(row);
-                }
                 for assigned_point_index in &assigned_point_indices {
-                    //let position =
-                    //    position_from_facet(&self.points, &new_facet, *assigned_point_index);
-                    let mut row = self.points[*assigned_point_index].to_vec();
-                    row.push(T::one());
-                    mat.push(row);
-                    let volume = det(&mat);
-                    if volume.clone() - threshold.clone() <= T::zero()
-                        && volume.clone() + threshold.clone() >= T::zero()
+                    let position =
+                        position_from_facet(&self.points, &new_facet, *assigned_point_index);
+                    if position.clone() - threshold.clone() <= T::zero()
+                        && position.clone() + threshold.clone() >= T::zero()
                     {
-                        mat.pop();
                         continue;
-                    } else if volume < T::zero() {
+                    } else if position > T::zero() {
                         let new_facet = self.facets.get_mut(new_key).unwrap();
                         new_facet.indices.swap(0, 1);
                         new_facet.normal = new_facet
@@ -349,12 +324,6 @@ where
             for new_key in &new_keys {
                 let new_facet = self.facets.get_mut(&new_key).unwrap();
                 let mut checked_point_set = BTreeSet::new();
-                let mut mat = Vec::new();
-                for index in &new_facet.indices{
-                    let mut row = self.points[*index].to_vec();
-                    row.push(T::one());
-                    mat.push(row);
-                }
                 for visible_facet in &visible_facets {
                     for (outside_point_index, _) in visible_facet.outside_points.iter() {
                         if assigned_point_indices.contains(outside_point_index) {
@@ -365,17 +334,10 @@ where
                         } else {
                             checked_point_set.insert(outside_point_index);
                         }
-                        //let pos =
-                        //    position_from_facet(&self.points, new_facet, *outside_point_index);
-                        let mut row = self.points[*outside_point_index].to_vec();
-                        row.push(T::one());
-                        mat.push(row);
-                        let volume = det(&mat);
-                        if volume < T::zero()-threshold.clone() {
-                            new_facet.outside_points.push((*outside_point_index, T::zero()-volume));
-                            mat.pop();
-                        }else{
-                            mat.pop();
+                        let pos =
+                            position_from_facet(&self.points, new_facet, *outside_point_index);
+                        if pos > threshold.clone() {
+                            new_facet.outside_points.push((*outside_point_index, pos));
                         }
                     }
                 }
@@ -400,8 +362,8 @@ where
                 self.facets.remove(&visible);
             }
         }
-        if !self.has_positive_volume(threshold.clone()){
-            return Err(ErrorKind::RoundOffError("negative volume".to_string()));
+        if !self.is_convex(threshold.clone()){
+            return Err(ErrorKind::RoundOffError("concave".to_string()));
         }
         Ok(())
     }
@@ -488,28 +450,17 @@ where
         };
         volume / factorial
     }
-    fn has_positive_volume(&self, threshold: T) -> bool{
-        let dim = self.points[0].len();
-        let (c_hull_vertices, c_hull_indices) = self.vertices_indices();
-        let mut reference_point = c_hull_vertices[c_hull_indices[0]].to_vec();
-        reference_point.push(T::one());
-        for i in (dim..c_hull_indices.len()).step_by(dim) {
-            let mut mat = Vec::new();
-            for j in 0..dim {
-                let mut row = c_hull_vertices[c_hull_indices[i + j]].to_vec();
-                row.push(T::one());
-                mat.push(row);
-            }
-            mat.push(reference_point.to_vec());
-            let volume = det(&mat);
-            if volume < T::zero()-threshold.clone(){
+    fn is_convex(&self, threshold: T) -> bool{
+        for (_,facet) in &self.facets {
+            let pos = position_from_facet(&self.points, &facet, 0);
+            if pos > threshold.clone(){
                 return false
             }
         }
         true
     }
     //
-    //What is a good way to find the surface area?
+    // What is a good way to find the surface area?
     //
     //pub fn area(&self) -> T {
     //    let dim = self.points[0].len();
@@ -661,18 +612,8 @@ where
             visited_neighbor.insert(neighbor_key);
         }
         let neighbor = facets.get(&neighbor_key).unwrap();
-        let mut mat = Vec::new();
-        for index in &neighbor.indices{
-            let mut row = points[*index].to_vec();
-            row.push(T::one());
-            mat.push(row);
-        }
-        let mut row = points[furthest_point_index].to_vec();
-        row.push(T::one());
-        mat.push(row);
-        let volume = det(&mat);
-        //let pos = position_from_facet(points, neighbor, furthest_point_index);
-        if volume < T::zero()-threshold.clone() {
+        let pos = position_from_facet(points, neighbor, furthest_point_index);
+        if &pos > &threshold {
             visible_set.insert(neighbor_key);
             neighbor_stack.append(&mut neighbor.neighbor_facets.iter().map(|k| *k).collect());
         }
@@ -730,20 +671,20 @@ where
     Ok(horizon)
 }
 
-//fn position_from_facet<T>(points: &[Vec<T>], facet: &Facet<T>, point_index: usize) -> T
-//where
-//    T: Clone + NumOps + Zero + One,
-//{
-//    let point = points[point_index].to_vec();
-//    let origin = facet.origin.clone();
-//    let pos = facet
-//        .normal
-//        .iter()
-//        .zip(point.iter())
-//        .map(|(a, b)| a.clone() * b.clone())
-//        .fold(T::zero(), |sum, x| sum + x);
-//    pos - origin
-//}
+fn position_from_facet<T>(points: &[Vec<T>], facet: &Facet<T>, point_index: usize) -> T
+where
+    T: Clone + NumOps + Zero + One,
+{
+    let point = points[point_index].to_vec();
+    let origin = facet.origin.clone();
+    let pos = facet
+        .normal
+        .iter()
+        .zip(point.iter())
+        .map(|(a, b)| a.clone() * b.clone())
+        .fold(T::zero(), |sum, x| sum + x);
+    pos - origin
+}
 
 fn is_degenerate<T>(points: &[Vec<T>], threshold: impl Into<T>) -> bool
 where
@@ -775,8 +716,7 @@ where
         }
         mat.push(row);
     }
-    let volume = det(&mat);
-    if volume.clone() - threshold.clone() <= T::zero() && volume + threshold.clone() >= T::zero() {
+    if det(&mat) - threshold.clone() <= T::zero() && det(&mat) + threshold.clone() >= T::zero() {
         true
     } else {
         false
@@ -963,23 +903,23 @@ fn facet_normal_test() {
     assert_eq!(normal_y, vec!(0.0, 2.0, 0.0));
 }
 
-//#[test]
-//fn inner_outer_test() {
-//    let p1 = vec![1.0, 0.0, 0.0];
-//    let p2 = vec![0.0, 1.0, 0.0];
-//    let p3 = vec![0.0, 0.0, 1.0];
-//    let outer_point = vec![0.0, 0.0, 10.0];
-//    let inner_point = vec![0.0, 0.0, 0.0];
-//    let whithin_point = vec![1.0, 0.0, 0.0];
-//    let points = vec![p1, p2, p3, outer_point, inner_point, whithin_point];
-//    let facet: Facet<f64> = Facet::new(&points, &[0, 1, 2]);
-//    let outer = position_from_facet(&points, &facet, 3);
-//    assert!(outer > 0.0);
-//    let inner = position_from_facet(&points, &facet, 4);
-//    assert!(inner < 0.0);
-//    let within = position_from_facet(&points, &facet, 5);
-//    assert!(within == 0.0);
-//}
+#[test]
+fn inner_outer_test() {
+    let p1 = vec![1.0, 0.0, 0.0];
+    let p2 = vec![0.0, 1.0, 0.0];
+    let p3 = vec![0.0, 0.0, 1.0];
+    let outer_point = vec![0.0, 0.0, 10.0];
+    let inner_point = vec![0.0, 0.0, 0.0];
+    let whithin_point = vec![1.0, 0.0, 0.0];
+    let points = vec![p1, p2, p3, outer_point, inner_point, whithin_point];
+    let facet: Facet<f64> = Facet::new(&points, &[0, 1, 2]);
+    let outer = position_from_facet(&points, &facet, 3);
+    assert!(outer > 0.0);
+    let inner = position_from_facet(&points, &facet, 4);
+    assert!(inner < 0.0);
+    let within = position_from_facet(&points, &facet, 5);
+    assert!(within == 0.0);
+}
 
 #[test]
 fn rectangle_test() {
