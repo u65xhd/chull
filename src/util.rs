@@ -100,7 +100,7 @@ fn det_4x4<T: NumOps + Clone>(m: &[Vec<T>]) -> T {
 pub fn remove_nearby_points<T>(
     points: &[Vec<T>],
     squared_distance: T,
-) -> Result<Vec<Vec<T>>, Box<dyn Error>>
+) -> Result<Vec<Vec<T>>, kdtree::ErrorKind>
 where
     T: Float,
 {

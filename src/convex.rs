@@ -103,7 +103,7 @@ where
         Ok(c_hull)
     }
 
-    fn create_simplex(points: &[Vec<T>], threshold: impl Into<T>) -> Result<Self, ErrorKind> {
+    fn create_simplex(points: &[Vec<T>], threshold: T) -> Result<Self, ErrorKind> {
         let indices_set = select_vertices_for_simplex(&points, threshold)?;
         let dim = points[0].len();
         let mut facet_add_count = 0;
@@ -162,10 +162,9 @@ where
 
     fn update(
         &mut self,
-        threshold: impl Into<T>,
+        threshold: T,
         max_iter: impl Into<Option<usize>>,
     ) -> Result<(), ErrorKind> {
-        let threshold = threshold.into();
         let dim = self.points[0].len();
         let mut facet_add_count = *self.facets.iter().last().map(|(k, _v)| k).unwrap() + 1;
         let mut num_iter = 0;
@@ -362,7 +361,7 @@ where
                 self.facets.remove(&visible);
             }
         }
-        if !self.is_convex(threshold.clone()){
+        if !self.is_convex(threshold.clone()) {
             return Err(ErrorKind::RoundOffError("concave".to_string()));
         }
         Ok(())
@@ -373,6 +372,7 @@ where
         points: &[Vec<T>],
         threshold: impl Into<T>,
     ) -> Result<(), ErrorKind> {
+        let threshold = threshold.into();
         let mut points = points.to_vec();
         self.points.append(&mut points);
         if !is_same_dimension(&self.points) {
@@ -450,11 +450,11 @@ where
         };
         volume / factorial
     }
-    fn is_convex(&self, threshold: T) -> bool{
-        for (_,facet) in &self.facets {
+    fn is_convex(&self, threshold: T) -> bool {
+        for (_, facet) in &self.facets {
             let pos = position_from_facet(&self.points, &facet, 0);
-            if pos > threshold.clone(){
-                return false
+            if pos > threshold.clone() {
+                return false;
             }
         }
         true
@@ -513,9 +513,9 @@ where
                     .zip(direction.iter())
                     .map(|(a, b)| a.clone() * b.clone())
                     .fold(T::zero(), |sum, x| sum + x);
-                let sign = if neighbor_dot < T::zero(){
-                    T::zero()-T::one()
-                }else{
+                let sign = if neighbor_dot < T::zero() {
+                    T::zero() - T::one()
+                } else {
                     T::one()
                 };
                 let sq_cos = sign * neighbor_dot.clone() * neighbor_dot
@@ -548,15 +548,11 @@ where
     }
 }
 
-fn select_vertices_for_simplex<T>(
-    points: &[Vec<T>],
-    threshold: impl Into<T>,
-) -> Result<Vec<usize>, ErrorKind>
+fn select_vertices_for_simplex<T>(points: &[Vec<T>], threshold: T) -> Result<Vec<usize>, ErrorKind>
 where
     T: PartialOrd + Clone + NumOps + Zero + One,
 {
     // try find the min max point
-    let threshold = threshold.into();
     let min_max_index_each_axis = min_max_index_each_axis(points);
     let mut vertex_indices_for_simplex = Vec::new();
     for (k, (min_index, max_index)) in min_max_index_each_axis.iter().enumerate() {
@@ -595,12 +591,11 @@ fn initialize_visible_set<T>(
     facets: &BTreeMap<usize, Facet<T>>,
     faset_key: usize,
     facet: &Facet<T>,
-    threshold: impl Into<T>,
+    threshold: T,
 ) -> BTreeSet<usize>
 where
     T: Clone + NumOps + Zero + One + PartialOrd,
 {
-    let threshold = threshold.into();
     let mut visible_set = BTreeSet::new();
     visible_set.insert(faset_key);
     let mut neighbor_stack: Vec<_> = facet.neighbor_facets.iter().map(|k| *k).collect();
@@ -613,7 +608,7 @@ where
         }
         let neighbor = facets.get(&neighbor_key).unwrap();
         let pos = position_from_facet(points, neighbor, furthest_point_index);
-        if &pos > &threshold {
+        if pos > threshold.clone() {
             visible_set.insert(neighbor_key);
             neighbor_stack.append(&mut neighbor.neighbor_facets.iter().map(|k| *k).collect());
         }
@@ -673,7 +668,7 @@ where
 
 fn position_from_facet<T>(points: &[Vec<T>], facet: &Facet<T>, point_index: usize) -> T
 where
-    T: Clone + NumOps + Zero + One,
+    T: Clone + NumOps + Zero + One + PartialOrd,
 {
     let point = points[point_index].to_vec();
     let origin = facet.origin.clone();
@@ -683,14 +678,17 @@ where
         .zip(point.iter())
         .map(|(a, b)| a.clone() * b.clone())
         .fold(T::zero(), |sum, x| sum + x);
+    //let pos_abs = if pos<T::zero(){T::zero()-pos.clone()}else{pos.clone()};
+    //let origin_abs = if origin<T::zero(){T::zero()-origin.clone()}else{origin.clone()};
+    //let mut max = if pos_abs > origin_abs {pos_abs}else{origin_abs};
+    //max = if max > T::one(){max} else{T::one()};
     pos - origin
 }
 
-fn is_degenerate<T>(points: &[Vec<T>], threshold: impl Into<T>) -> bool
+fn is_degenerate<T>(points: &[Vec<T>], threshold: T) -> bool
 where
     T: Clone + NumOps + Zero + One + PartialOrd,
 {
-    let threshold = threshold.into();
     let dim = points[0].len();
     let ex_vec: Vec<Vec<_>> = points
         .iter()
@@ -723,12 +721,11 @@ where
     }
 }
 
-fn non_degenerate_indices<T>(vertices: &[Vec<T>], threshold: impl Into<T>) -> Option<Vec<usize>>
+fn non_degenerate_indices<T>(vertices: &[Vec<T>], threshold: T) -> Option<Vec<usize>>
 where
     T: Clone + NumOps + Zero + One + PartialOrd,
 {
     // look for points that are not degenerate for simplex using the Gram-Schmidt method
-    let threshold = threshold.into();
     let dim = vertices[0].len();
     if dim >= vertices.len() {
         return None;
@@ -1169,4 +1166,27 @@ fn is_degenerate_test() {
         vec![1., 0., 1.],
     ];
     assert!(!is_degenerate(&points, 0.00001));
+}
+
+#[test]
+fn i128_test() {
+    let p1 = vec![1.0, 0.0, 0.0];
+    let p2 = vec![0.0, 0.001, 0.0];
+    let p3 = vec![0.0, 0.0, 0.00001];
+    let p4 = vec![-1.0, 0.0, 0.0];
+    let p5 = vec![0.0, -0.001, 0.0];
+    let p6 = vec![0.0, 0.0, -0.00001];
+    let points_float = vec![p1, p2, p3, p4, p5, p6];
+    let mut points_i128 = Vec::new();
+    for point_float in &points_float {
+        points_i128.push(
+            point_float
+                .iter()
+                .map(|x| (x * 1_000_000.0) as i128)
+                .collect::<Vec<_>>(),
+        );
+    }
+    let octahedron = ConvexHull::try_new(&points_i128, 10, None).unwrap();
+    // The following are likely to be errors
+    //let octahedron = ConvexHull::try_new(&points_float, std::f32::EPSILON, None).unwrap();
 }
