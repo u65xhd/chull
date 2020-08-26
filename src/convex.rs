@@ -496,7 +496,16 @@ where
             .zip(direction.iter())
             .map(|(a, b)| a.clone() * b.clone())
             .fold(T::zero(), |sum, x| sum + x);
-        let mut max_sq_cos = dot.clone() * dot / (normal_sq_norm * direction_sq_norm.clone());
+        let sign = if dot < T::zero() {
+                T::zero() - T::one()
+            } else {
+                T::one()
+            };
+        let mut max_sq_cos = if normal_sq_norm != T::zero() && direction_sq_norm != T::zero() {
+            sign * dot.clone() * dot / (normal_sq_norm * direction_sq_norm.clone())
+        } else{
+            T::zero()
+        };
         let mut max_sq_cos_facet_key = facet_key;
         loop {
             let facet = &self.facets[&facet_key];
@@ -518,8 +527,12 @@ where
                 } else {
                     T::one()
                 };
-                let sq_cos = sign * neighbor_dot.clone() * neighbor_dot
-                    / (neighbor_normal_sq_norm * direction_sq_norm.clone());
+                let sq_cos = if neighbor_normal_sq_norm != T::zero() && direction_sq_norm != T::zero(){
+                    sign * neighbor_dot.clone() * neighbor_dot
+                    / (neighbor_normal_sq_norm * direction_sq_norm.clone())}
+                    else{
+                        T::zero()
+                    };
                 if max_sq_cos < sq_cos {
                     max_sq_cos = sq_cos;
                     max_sq_cos_facet_key = neighbor_key;
