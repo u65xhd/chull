@@ -3,6 +3,7 @@ use num_traits::{NumOps, One, Zero};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
+use std::ops::Neg;
 
 #[derive(Debug, Clone)]
 struct Facet<T> {
@@ -15,16 +16,12 @@ struct Facet<T> {
 
 impl<T> Facet<T>
 where
-    T: Clone + NumOps + Zero + One,
+    T: Clone + NumOps + Zero + One + Neg<Output = T>,
 {
     fn new(points: &[Vec<T>], indices: &[usize]) -> Self {
         let points_of_facet: Vec<_> = indices.iter().map(|i| points[*i].to_vec()).collect();
         let normal = facet_normal(&points_of_facet);
-        let origin = normal
-            .iter()
-            .zip(points_of_facet[0].iter())
-            .map(|(a, b)| a.clone() * b.clone())
-            .fold(T::zero(), |sum, x| sum + x);
+        let origin = dot(&normal, &points_of_facet[0]);
         Self {
             indices: indices.to_vec(),
             outside_points: Vec::new(),
@@ -67,7 +64,7 @@ pub struct ConvexHull<T> {
 
 impl<T> ConvexHull<T>
 where
-    T: PartialOrd + Clone + NumOps + Zero + One,
+    T: PartialOrd + Clone + NumOps + Zero + One + Neg<Output = T>,
 {
     pub fn try_new(
         points: &[Vec<T>],
@@ -104,39 +101,33 @@ where
     }
 
     fn create_simplex(points: &[Vec<T>], threshold: T) -> Result<Self, ErrorKind> {
-        let indices_set = select_vertices_for_simplex(&points, threshold)?;
+        let indices_set = select_vertices_for_simplex(&points, threshold.clone())?;
         let dim = points[0].len();
         let mut facet_add_count = 0;
         let mut facets = BTreeMap::new();
         for i_facet in 0..dim + 1 {
-            let mut facet = Vec::new();
+            let mut facet_indices = Vec::new();
             // create facet
             for j in 0..dim + 1 {
                 if j == i_facet {
                     continue;
                 }
-                facet.push(indices_set[j]);
+                facet_indices.push(indices_set[j]);
             }
+            let mut facet = Facet::new(points, &facet_indices);
             // check the order of facet's vertices
             let rem_point = indices_set[i_facet];
-            let mut mat = Vec::new();
-            for point in facet.iter() {
-                let mut row = points[*point].to_vec();
-                row.push(T::one());
-                mat.push(row);
+            let pos = position_from_facet(points, &facet, rem_point);
+            if pos > threshold.clone() {
+                facet.indices.swap(0, 1);
+                facet.normal = facet.normal.iter().map(|x| -x.clone()).collect();
+                facet.origin = -facet.origin;
             }
-            let mut row = points[rem_point].to_vec();
-            row.push(T::one());
-            mat.push(row);
-            if det(&mat) < T::zero() {
-                facet.swap(0, 1);
-            }
-            if dim != facet.len() {
+            if dim != facet.indices.len() {
                 return Err(ErrorKind::RoundOffError(
                     "number of facet's vartices should be dim".to_string(),
                 ));
             }
-            let facet = Facet::new(points, &facet);
             facets.insert(facet_add_count, facet);
             facet_add_count += 1;
         }
@@ -290,19 +281,15 @@ where
                 for assigned_point_index in &assigned_point_indices {
                     let position =
                         position_from_facet(&self.points, &new_facet, *assigned_point_index);
-                    if position.clone() - threshold.clone() <= T::zero()
-                        && position.clone() + threshold.clone() >= T::zero()
+                    if position.clone() <= threshold.clone()
+                        && position.clone() >= -threshold.clone()
                     {
                         continue;
                     } else if position > T::zero() {
                         let new_facet = self.facets.get_mut(new_key).unwrap();
                         new_facet.indices.swap(0, 1);
-                        new_facet.normal = new_facet
-                            .normal
-                            .iter()
-                            .map(|x| T::zero() - x.clone())
-                            .collect();
-                        new_facet.origin = T::zero() - new_facet.origin.clone();
+                        new_facet.normal = new_facet.normal.iter().map(|x| -x.clone()).collect();
+                        new_facet.origin = -new_facet.origin.clone();
                         degenerate = false;
                         break;
                     } else {
@@ -479,91 +466,83 @@ where
         if self.points[0].len() != direction.len() {
             return Err(ErrorKind::WrongDimension);
         }
-        let direction_sq_norm = direction
-            .iter()
-            .map(|x| x.clone() * x.clone())
-            .fold(T::zero(), |sum, x| sum + x);
-        let (mut facet_key, _) = &self.facets.iter().next().unwrap();
-        let facet = &self.facets[facet_key];
-        let normal_sq_norm = facet
-            .normal
-            .iter()
-            .map(|x| x.clone() * x.clone())
-            .fold(T::zero(), |sum, x| sum + x);
-        let dot = facet
-            .normal
-            .iter()
-            .zip(direction.iter())
-            .map(|(a, b)| a.clone() * b.clone())
-            .fold(T::zero(), |sum, x| sum + x);
-        let sign = if dot < T::zero() {
-                T::zero() - T::one()
-            } else {
-                T::one()
-            };
-        let mut max_sq_cos = if normal_sq_norm != T::zero() && direction_sq_norm != T::zero() {
-            sign * dot.clone() * dot / (normal_sq_norm * direction_sq_norm.clone())
-        } else{
-            T::zero()
-        };
-        let mut max_sq_cos_facet_key = facet_key;
-        loop {
-            let facet = &self.facets[&facet_key];
-            for neighbor_key in &facet.neighbor_facets {
-                let neighbor = &self.facets[neighbor_key];
-                let neighbor_normal_sq_norm = neighbor
-                    .normal
-                    .iter()
-                    .map(|x| x.clone() * x.clone())
-                    .fold(T::zero(), |sum, x| sum + x);
-                let neighbor_dot = neighbor
-                    .normal
-                    .iter()
-                    .zip(direction.iter())
-                    .map(|(a, b)| a.clone() * b.clone())
-                    .fold(T::zero(), |sum, x| sum + x);
-                let sign = if neighbor_dot < T::zero() {
-                    T::zero() - T::one()
-                } else {
-                    T::one()
-                };
-                let sq_cos = if neighbor_normal_sq_norm != T::zero() && direction_sq_norm != T::zero(){
-                    sign * neighbor_dot.clone() * neighbor_dot
-                    / (neighbor_normal_sq_norm * direction_sq_norm.clone())}
-                    else{
-                        T::zero()
-                    };
-                if max_sq_cos < sq_cos {
-                    max_sq_cos = sq_cos;
-                    max_sq_cos_facet_key = neighbor_key;
-                }
-            }
-            if facet_key == max_sq_cos_facet_key {
-                break;
-            } else {
-                facet_key = max_sq_cos_facet_key;
+        let mut max = dot(&self.points[0], &direction);
+        let mut index = 0;
+        for (i, point) in self.points.iter().enumerate().skip(1) {
+            let dot_product = dot(point, direction);
+            if dot_product > max {
+                max = dot_product;
+                index = i;
             }
         }
-        let mut max = T::zero();
-        let mut max_index = 0;
-        for (j, index) in self.facets[&facet_key].indices.iter().enumerate() {
-            let dot = self.points[*index]
-                .iter()
-                .zip(direction.iter())
-                .map(|(a, b)| a.clone() * b.clone())
-                .fold(T::zero(), |sum, x| sum + x);
-            if j == 0 || max < dot {
-                max = dot;
-                max_index = *index;
-            }
-        }
-        Ok(self.points[max_index].to_vec())
+
+        Ok(self.points[index].to_vec())
     }
+    //pub fn support_point(&self, direction: &[T]) -> Result<Vec<T>, ErrorKind> {
+    //    if self.points[0].len() != direction.len() {
+    //        return Err(ErrorKind::WrongDimension);
+    //    }
+    //    let direction_sq_norm = dot(&direction, &direction);
+    //    let (mut facet_key, _) = &self.facets.iter().next().unwrap();
+    //    let facet = &self.facets[facet_key];
+    //    let normal_sq_norm = dot(&facet.normal, &facet.normal);
+    //    let dot_product = dot(&facet.normal, &direction);
+    //    let sign = if dot_product < T::zero() {
+    //        -T::one()
+    //    } else {
+    //        T::one()
+    //    };
+    //    let mut max_sq_cos = if normal_sq_norm != T::zero() && direction_sq_norm != T::zero() {
+    //        sign * dot_product.clone() * dot_product / (normal_sq_norm * direction_sq_norm.clone())
+    //    } else {
+    //        T::zero()
+    //    };
+    //    let mut max_sq_cos_facet_key = facet_key;
+    //    loop {
+    //        let facet = &self.facets[&facet_key];
+    //        for neighbor_key in &facet.neighbor_facets {
+    //            let neighbor = &self.facets[neighbor_key];
+    //            let neighbor_normal_sq_norm = dot(&neighbor.normal, &neighbor.normal);
+    //            let neighbor_dot = dot(&neighbor.normal, &direction);
+    //            let sign = if neighbor_dot < T::zero() {
+    //                -T::one()
+    //            } else {
+    //                T::one()
+    //            };
+    //            let sq_cos =
+    //                if neighbor_normal_sq_norm != T::zero() && direction_sq_norm != T::zero() {
+    //                    sign * neighbor_dot.clone() * neighbor_dot
+    //                        / (neighbor_normal_sq_norm * direction_sq_norm.clone())
+    //                } else {
+    //                    T::zero()
+    //                };
+    //            if max_sq_cos < sq_cos {
+    //                max_sq_cos = sq_cos;
+    //                max_sq_cos_facet_key = neighbor_key;
+    //            }
+    //        }
+    //        if facet_key == max_sq_cos_facet_key {
+    //            break;
+    //        } else {
+    //            facet_key = max_sq_cos_facet_key;
+    //        }
+    //    }
+    //    let mut max = T::zero();
+    //    let mut max_index = 0;
+    //    for (j, index) in self.facets[&facet_key].indices.iter().enumerate() {
+    //        let dot_product = dot(&self.points[*index], &direction);
+    //        if j == 0 || max < dot_product {
+    //            max = dot_product;
+    //            max_index = *index;
+    //        }
+    //    }
+    //    Ok(self.points[max_index].to_vec())
+    //}
 }
 
 fn select_vertices_for_simplex<T>(points: &[Vec<T>], threshold: T) -> Result<Vec<usize>, ErrorKind>
 where
-    T: PartialOrd + Clone + NumOps + Zero + One,
+    T: PartialOrd + Clone + NumOps + Zero + One + Neg<Output = T>,
 {
     // try find the min max point
     let min_max_index_each_axis = min_max_index_each_axis(points);
@@ -683,24 +662,14 @@ fn position_from_facet<T>(points: &[Vec<T>], facet: &Facet<T>, point_index: usiz
 where
     T: Clone + NumOps + Zero + One + PartialOrd,
 {
-    let point = points[point_index].to_vec();
     let origin = facet.origin.clone();
-    let pos = facet
-        .normal
-        .iter()
-        .zip(point.iter())
-        .map(|(a, b)| a.clone() * b.clone())
-        .fold(T::zero(), |sum, x| sum + x);
-    //let pos_abs = if pos<T::zero(){T::zero()-pos.clone()}else{pos.clone()};
-    //let origin_abs = if origin<T::zero(){T::zero()-origin.clone()}else{origin.clone()};
-    //let mut max = if pos_abs > origin_abs {pos_abs}else{origin_abs};
-    //max = if max > T::one(){max} else{T::one()};
+    let pos = dot(&facet.normal, &points[point_index]);
     pos - origin
 }
 
 fn is_degenerate<T>(points: &[Vec<T>], threshold: T) -> bool
 where
-    T: Clone + NumOps + Zero + One + PartialOrd,
+    T: Clone + NumOps + Zero + One + PartialOrd + Neg<Output = T>,
 {
     let dim = points[0].len();
     let ex_vec: Vec<Vec<_>> = points
@@ -727,7 +696,7 @@ where
         }
         mat.push(row);
     }
-    if det(&mat) - threshold.clone() <= T::zero() && det(&mat) + threshold.clone() >= T::zero() {
+    if det(&mat) <= threshold.clone() && det(&mat) >= -threshold.clone() {
         true
     } else {
         false
@@ -736,79 +705,28 @@ where
 
 fn non_degenerate_indices<T>(vertices: &[Vec<T>], threshold: T) -> Option<Vec<usize>>
 where
-    T: Clone + NumOps + Zero + One + PartialOrd,
+    T: Clone + NumOps + Zero + One + PartialOrd + Neg<Output = T>,
 {
-    // look for points that are not degenerate for simplex using the Gram-Schmidt method
     let dim = vertices[0].len();
-    if dim >= vertices.len() {
+    let num_points = vertices.len();
+    if dim >= num_points {
         return None;
     }
     let mut indices = vec![0];
-    let mut first_axis = vertices[1]
-        .iter()
-        .zip(vertices[0].iter())
-        .map(|(a, b)| a.clone() - b.clone())
-        .collect::<Vec<_>>();
-    let mut sq_norm = first_axis
-        .iter()
-        .fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
-    let mut j = 1;
-    while sq_norm.clone() - threshold.clone() <= T::zero()
-        && sq_norm + threshold.clone() >= T::zero()
-    {
-        j += 1;
-        first_axis = vertices[j]
-            .iter()
-            .zip(vertices[0].iter())
-            .map(|(a, b)| a.clone() - b.clone())
-            .collect();
-        sq_norm = first_axis
-            .iter()
-            .fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
-    }
-    let mut axes = vec![first_axis];
-    indices.push(j);
-    for i in j + 1..vertices.len() {
-        let vector = vertices[i]
-            .iter()
-            .zip(vertices[0].iter())
-            .map(|(a, b)| a.clone() - b.clone());
-        let sq_norm = vector
-            .clone()
-            .fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
-        if sq_norm.clone() - threshold.clone() <= T::zero()
-            && sq_norm + threshold.clone() >= T::zero()
-        {
+    let mut axes = Vec::new();
+    for i in 1..num_points {
+        let vector = sub(&vertices[i], &vertices[0]);
+        let sq_norm = dot(&vector, &vector);
+        if sq_norm.clone() <= threshold.clone() {
             continue;
         }
-        let mut rem: Vec<_> = vector.clone().collect();
-        for axis in &axes {
-            let axis_sq_norm = axis
-                .iter()
-                .fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
-            let coef = axis
-                .iter()
-                .zip(vector.clone())
-                .map(|(a, b)| a.clone() * b.clone())
-                .fold(T::zero(), |sum, x| sum + x)
-                / axis_sq_norm;
-            rem = rem
-                .iter()
-                .zip(axis.iter())
-                .map(|(rem, axis)| rem.clone() - coef.clone() * axis.clone())
-                .collect();
-        }
+        axes.push(vector);
+        let det_cor = det_correlation_matrix(&axes);
 
-        let rem_sq_norm = rem
-            .iter()
-            .fold(T::zero(), |sum, x| sum + x.clone() * x.clone());
-        if rem_sq_norm.clone() - threshold.clone() <= T::zero()
-            && rem_sq_norm + threshold.clone() >= T::zero()
-        {
+        if det_cor <= threshold.clone() {
+            axes.pop();
             continue;
         }
-        let new_axis = rem;
-        axes.push(new_axis);
         indices.push(i);
         if axes.len() == dim {
             return Some(indices);
@@ -816,6 +734,61 @@ where
     }
     None
 }
+
+//
+//fn non_degenerate_indices<T>(vertices: &[Vec<T>], threshold: T) -> Option<Vec<usize>>
+//where
+//    T: Clone + NumOps + Zero + One + PartialOrd + Neg<Output = T>,
+//{
+//    // look for points that are not degenerate for simplex using the Gram-Schmidt method
+//    let dim = vertices[0].len();
+//    let num_points = vertices.len();
+//    if dim >= num_points {
+//        return None;
+//    }
+//    let mut indices = vec![0];
+//    let mut first_axis = sub(&vertices[1], &vertices[0]);
+//    let mut sq_norm = dot(&first_axis, &first_axis);
+//    let mut j = 1;
+//    while sq_norm.clone() <= threshold.clone() {
+//        j += 1;
+//        if j >= num_points {
+//            return None;
+//        }
+//        first_axis = sub(&vertices[j], &vertices[0]);
+//        sq_norm = dot(&first_axis, &first_axis);
+//    }
+//    let mut axes = vec![first_axis];
+//    indices.push(j);
+//    for i in j + 1..num_points {
+//        let vector = sub(&vertices[i], &vertices[0]);
+//        let sq_norm = dot(&vector, &vector);
+//        if sq_norm.clone() <= threshold.clone() {
+//            continue;
+//        }
+//        let mut new_axis: Vec<_> = vector.clone();
+//        for axis in &axes {
+//            let axis_sq_norm = dot(&axis, &axis);
+//            let coef = dot(&axis, &vector) / axis_sq_norm;
+//            new_axis = new_axis
+//                .iter()
+//                .zip(axis.iter())
+//                .map(|(x, axis)| x.clone() - coef.clone() * axis.clone())
+//                .collect();
+//        }
+//
+//        let new_axis_sq_norm = dot(&new_axis, &new_axis);
+//        if new_axis_sq_norm.clone() <= threshold.clone() {
+//            continue;
+//        }
+//        axes.push(new_axis);
+//        indices.push(i);
+//        if axes.len() == dim {
+//            return Some(indices);
+//        }
+//    }
+//    None
+//}
 
 //
 //What is a good way to find the surface area?
@@ -857,18 +830,14 @@ where
 
 fn facet_normal<T>(points_of_facet: &[Vec<T>]) -> Vec<T>
 where
-    T: Clone + NumOps + Zero + One,
+    T: Clone + NumOps + Zero + One + Neg<Output = T>,
 {
     let num_points = points_of_facet.len();
     let dim = points_of_facet[0].len();
     assert_eq!(num_points, dim);
     let mut vectors = Vec::new();
     for i in 1..num_points {
-        let vector: Vec<_> = points_of_facet[i]
-            .iter()
-            .zip(points_of_facet[i - 1].iter())
-            .map(|(a, b)| a.clone() - b.clone())
-            .collect();
+        let vector: Vec<_> = sub(&points_of_facet[i], &points_of_facet[i - 1]);
         vectors.push(vector);
     }
     let mut sign = T::one();
@@ -887,7 +856,7 @@ where
         }
         let cofactor = det(&mat);
         normal.push(sign.clone() * cofactor);
-        sign = T::zero() - sign;
+        sign = -sign;
     }
     normal // this normal is not unit vector
 }
@@ -1199,7 +1168,5 @@ fn i128_test() {
                 .collect::<Vec<_>>(),
         );
     }
-    let octahedron = ConvexHull::try_new(&points_i128, 10, None).unwrap();
-    // The following are likely to be errors
-    //let octahedron = ConvexHull::try_new(&points_float, std::f32::EPSILON, None).unwrap();
+    let octahedron = ConvexHull::try_new(&points_i128, 0, None).unwrap();
 }

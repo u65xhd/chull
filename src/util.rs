@@ -4,6 +4,38 @@ use num_traits::{Float, NumOps, Zero};
 use std::collections::BTreeMap;
 use std::error::Error;
 
+pub(crate) fn det_correlation_matrix<T: Clone + NumOps + Zero>(mat: &[Vec<T>]) -> T {
+    let dim = mat[0].len();
+    let num = mat.len();
+    let mut cor = Vec::new();
+    for i in 0..num {
+        let mut column = Vec::new();
+        for j in 0..num {
+            let mut c = T::zero();
+            for k in 0..dim {
+                c = c + mat[i][k].clone() * mat[j][k].clone();
+            }
+            column.push(c);
+        }
+        cor.push(column);
+    }
+    det(&cor)
+}
+
+pub(crate) fn dot<T: Clone + NumOps + Zero>(x: &[T], y: &[T]) -> T {
+    x.iter()
+        .zip(y.iter())
+        .map(|(a, b)| a.clone() * b.clone())
+        .fold(T::zero(), |sum, c| sum + c)
+}
+
+pub(crate) fn sub<T: Clone + NumOps + Zero>(x: &[T], y: &[T]) -> Vec<T> {
+    x.iter()
+        .zip(y.iter())
+        .map(|(a, b)| a.clone() - b.clone())
+        .collect()
+}
+
 pub(crate) fn min_max_index_each_axis<T: Clone + Zero + PartialOrd>(
     points: &[Vec<T>],
 ) -> Vec<(usize, usize)> {
