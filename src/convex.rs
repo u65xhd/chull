@@ -1,6 +1,6 @@
 use super::util::*;
 use num_traits::{NumOps, One, Zero};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{HashSet, BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 use std::ops::Neg;
@@ -159,7 +159,7 @@ where
         let dim = self.points[0].len();
         let mut facet_add_count = *self.facets.iter().last().map(|(k, _v)| k).unwrap() + 1;
         let mut num_iter = 0;
-        let mut assigned_point_indices: BTreeSet<usize> = BTreeSet::new();
+        let mut assigned_point_indices: HashSet<usize> = HashSet::new();
         for facet in self.facets.values() {
             for index in &facet.indices {
                 assigned_point_indices.insert(*index);
@@ -237,7 +237,7 @@ where
             }
             // facet link its neighbor
             for (i, key_a) in new_keys.iter().enumerate() {
-                let points_of_new_facet_a: BTreeSet<_> = self
+                let points_of_new_facet_a: HashSet<_> = self
                     .facets
                     .get(key_a)
                     .unwrap()
@@ -246,7 +246,7 @@ where
                     .map(|k| *k)
                     .collect();
                 for key_b in new_keys.iter().skip(i + 1) {
-                    let points_of_new_facet_b: BTreeSet<_> = self
+                    let points_of_new_facet_b: HashSet<_> = self
                         .facets
                         .get(key_b)
                         .unwrap()
@@ -309,7 +309,7 @@ where
             }
             for new_key in &new_keys {
                 let new_facet = self.facets.get_mut(&new_key).unwrap();
-                let mut checked_point_set = BTreeSet::new();
+                let mut checked_point_set = HashSet::new();
                 for visible_facet in &visible_facets {
                     for (outside_point_index, _) in visible_facet.outside_points.iter() {
                         if assigned_point_indices.contains(outside_point_index) {
@@ -584,14 +584,14 @@ fn initialize_visible_set<T>(
     faset_key: usize,
     facet: &Facet<T>,
     threshold: T,
-) -> BTreeSet<usize>
+) -> HashSet<usize>
 where
     T: Clone + NumOps + Zero + One + PartialOrd,
 {
-    let mut visible_set = BTreeSet::new();
+    let mut visible_set = HashSet::new();
     visible_set.insert(faset_key);
     let mut neighbor_stack: Vec<_> = facet.neighbor_facets.iter().map(|k| *k).collect();
-    let mut visited_neighbor = BTreeSet::new();
+    let mut visited_neighbor = HashSet::new();
     while let Some(neighbor_key) = neighbor_stack.pop() {
         if visited_neighbor.contains(&neighbor_key) {
             continue;
@@ -609,7 +609,7 @@ where
 }
 
 fn get_horizon<T>(
-    visible_set: &BTreeSet<usize>,
+    visible_set: &HashSet<usize>,
     facets: &BTreeMap<usize, Facet<T>>,
     dim: usize,
 ) -> Result<Vec<(Vec<usize>, usize)>, ErrorKind>
@@ -619,7 +619,7 @@ where
     let mut horizon = Vec::new();
     for visible_key in visible_set {
         let visible_facet = facets.get(visible_key).unwrap();
-        let points_of_visible_facet: BTreeSet<_> =
+        let points_of_visible_facet: HashSet<_> =
             visible_facet.indices.iter().map(|i| *i).collect();
         if dim != points_of_visible_facet.len() {
             return Err(ErrorKind::RoundOffError(
@@ -631,7 +631,7 @@ where
             // if neighbor is unvisible
             if !visible_set.contains(neighbor_key) {
                 let unvisible_neighbor = facets.get(neighbor_key).unwrap();
-                let points_of_unvisible_neighbor: BTreeSet<_> =
+                let points_of_unvisible_neighbor: HashSet<_> =
                     unvisible_neighbor.indices.iter().map(|i| *i).collect();
                 if dim != points_of_unvisible_neighbor.len() {
                     return Err(ErrorKind::RoundOffError(
