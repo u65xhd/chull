@@ -1,6 +1,6 @@
 [package]
 name = "chull"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["daidanretsu<daidanretsu@outlook.jp>"]
 description = "Convex hull approximation"
 keywords = ["convex", "hull", "geo"]
@@ -13,3 +13,6 @@ readme = "README.md"
 [dependencies]
 num-traits = "0.2"
 kdtree = "0.6"
+
+[dev-dependencies]
+num-bigint = "0.3.0"
