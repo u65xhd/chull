@@ -360,14 +360,13 @@ where
         threshold: impl Into<T>,
     ) -> Result<(), ErrorKind> {
         let threshold = threshold.into();
-        let mut points = points.to_vec();
-        self.points.append(&mut points);
+        self.points.append(&mut points.to_vec());
         if !is_same_dimension(&self.points) {
             return Err(ErrorKind::WrongDimension);
         }
         self.update(threshold, None)?;
         self.remove_unused_points();
-        if self.points.len() <= points[0].len() {
+        if self.points.len() <= self.points[0].len() {
             //degenerate convex hull is generated
             return Err(ErrorKind::Degenerated);
         }
