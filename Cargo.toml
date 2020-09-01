@@ -1,6 +1,6 @@
 [package]
 name = "chull"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["daidanretsu<daidanretsu@outlook.jp>"]
 description = "Convex hull approximation"
 keywords = ["convex", "hull", "geo"]
