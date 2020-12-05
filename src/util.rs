@@ -2,7 +2,6 @@ use kdtree::distance::squared_euclidean;
 use kdtree::KdTree;
 use num_traits::{Float, NumOps, Zero};
 use std::collections::BTreeMap;
-use std::error::Error;
 
 pub(crate) fn det_correlation_matrix<T: Clone + NumOps + Zero>(mat: &[Vec<T>]) -> T {
     let dim = mat[0].len();
