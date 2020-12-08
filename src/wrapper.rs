@@ -4,8 +4,8 @@ use num_bigint::{BigInt, ToBigInt};
 use num_traits::Float;
 
 #[derive(Clone, Debug)]
-// A wrapper that holds a given points as a bigint.
-// This can compute a convex hull robustly, although the computation is slower.
+/// A wrapper that holds a given points as a bigint.
+/// This can compute a convex hull robustly, although the computation is slower.
 pub struct ConvexHullWrapper<T: Float + ToBigInt> {
     pub inner: ConvexHull<BigInt>,
     pub conversion_factor: T,
