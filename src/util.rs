@@ -1,7 +1,4 @@
-use kdtree::distance::squared_euclidean;
-use kdtree::KdTree;
-use num_traits::{Float, NumOps, Zero};
-use std::collections::BTreeMap;
+use num_traits::{NumOps, Zero};
 
 pub(crate) fn det_correlation_matrix<T: Clone + NumOps + Zero>(mat: &[Vec<T>]) -> T {
     let dim = mat[0].len();
@@ -126,39 +123,6 @@ fn det_4x4<T: NumOps + Clone>(m: &[Vec<T>]) -> T {
             - m[0][3].clone() * m[1][2].clone() * m[2][1].clone()
             - m[0][2].clone() * m[1][1].clone() * m[2][3].clone()
             - m[0][1].clone() * m[1][3].clone() * m[2][2].clone())
-}
-
-pub fn remove_nearby_points<T>(
-    points: &[Vec<T>],
-    squared_distance: T,
-) -> Result<Vec<Vec<T>>, kdtree::ErrorKind>
-where
-    T: Float,
-{
-    let mut points_map = BTreeMap::new();
-    let dim = points[0].len();
-    let mut kdtree = KdTree::new(dim);
-    for (i, point) in points.iter().enumerate() {
-        points_map.insert(i, point);
-        kdtree.add(point, i)?;
-    }
-    let mut live_indices = Vec::new();
-    while let Some((id, point)) = points_map.iter().next() {
-        let mut remove_list = Vec::new();
-        live_indices.push(*id);
-        for (_near_point_distance, near_point_id) in
-            kdtree.within(&point, squared_distance, &squared_euclidean)?
-        {
-            remove_list.push(*near_point_id);
-        }
-        for key in remove_list {
-            points_map.remove(&key);
-        }
-    }
-    Ok(live_indices
-        .into_iter()
-        .map(|i| points[i].to_vec())
-        .collect())
 }
 
 #[test]

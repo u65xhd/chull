@@ -1,6 +1,6 @@
 use super::util::*;
 use num_traits::{NumOps, One, Zero};
-use std::collections::{HashSet, BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::ops::Neg;
@@ -58,7 +58,7 @@ impl Error for ErrorKind {}
 
 #[derive(Clone, Debug)]
 pub struct ConvexHull<T> {
-    points: Vec<Vec<T>>,
+    pub points: Vec<Vec<T>>,
     facets: BTreeMap<usize, Facet<T>>,
 }
 
@@ -69,7 +69,7 @@ where
     pub fn try_new(
         points: &[Vec<T>],
         threshold: impl Into<T>,
-        max_iter: impl Into<Option<usize>>,
+        max_iter: Option<usize>,
     ) -> Result<Self, ErrorKind> {
         let threshold = threshold.into();
         let num_points = points.len();
@@ -151,11 +151,7 @@ where
         Ok(simplex)
     }
 
-    fn update(
-        &mut self,
-        threshold: T,
-        max_iter: impl Into<Option<usize>>,
-    ) -> Result<(), ErrorKind> {
+    fn update(&mut self, threshold: T, max_iter: Option<usize>) -> Result<(), ErrorKind> {
         let dim = self.points[0].len();
         let mut facet_add_count = *self.facets.iter().last().map(|(k, _v)| k).unwrap() + 1;
         let mut num_iter = 0;
@@ -177,7 +173,7 @@ where
                 }
             }
         }
-        let (max_iter, truncate) = if let Some(iter) = max_iter.into() {
+        let (max_iter, truncate) = if let Some(iter) = max_iter {
             (iter, true)
         } else {
             (0, false)
@@ -445,22 +441,6 @@ where
         }
         true
     }
-    //
-    // What is a good way to find the surface area?
-    //
-    //pub fn area(&self) -> T {
-    //    let dim = self.points[0].len();
-    //    let (c_hull_vertices, c_hull_indices) = self.vertices_indices();
-    //    let mut total_area = T::zero();
-    //    for i in (0..c_hull_indices.len()).step_by(dim) {
-    //        let mut points = Vec::new();
-    //        for j in 0..dim {
-    //            points.push(c_hull_vertices[c_hull_indices[i + j]].to_vec());
-    //        }
-    //        total_area = total_area + facet_area(&points);
-    //    }
-    //    total_area
-    //}
     pub fn support_point(&self, direction: &[T]) -> Result<Vec<T>, ErrorKind> {
         if self.points[0].len() != direction.len() {
             return Err(ErrorKind::WrongDimension);
@@ -477,66 +457,6 @@ where
 
         Ok(self.points[index].to_vec())
     }
-    //pub fn support_point(&self, direction: &[T]) -> Result<Vec<T>, ErrorKind> {
-    //    if self.points[0].len() != direction.len() {
-    //        return Err(ErrorKind::WrongDimension);
-    //    }
-    //    let direction_sq_norm = dot(&direction, &direction);
-    //    let (mut facet_key, _) = &self.facets.iter().next().unwrap();
-    //    let facet = &self.facets[facet_key];
-    //    let normal_sq_norm = dot(&facet.normal, &facet.normal);
-    //    let dot_product = dot(&facet.normal, &direction);
-    //    let sign = if dot_product < T::zero() {
-    //        -T::one()
-    //    } else {
-    //        T::one()
-    //    };
-    //    let mut max_sq_cos = if normal_sq_norm != T::zero() && direction_sq_norm != T::zero() {
-    //        sign * dot_product.clone() * dot_product / (normal_sq_norm * direction_sq_norm.clone())
-    //    } else {
-    //        T::zero()
-    //    };
-    //    let mut max_sq_cos_facet_key = facet_key;
-    //    loop {
-    //        let facet = &self.facets[&facet_key];
-    //        for neighbor_key in &facet.neighbor_facets {
-    //            let neighbor = &self.facets[neighbor_key];
-    //            let neighbor_normal_sq_norm = dot(&neighbor.normal, &neighbor.normal);
-    //            let neighbor_dot = dot(&neighbor.normal, &direction);
-    //            let sign = if neighbor_dot < T::zero() {
-    //                -T::one()
-    //            } else {
-    //                T::one()
-    //            };
-    //            let sq_cos =
-    //                if neighbor_normal_sq_norm != T::zero() && direction_sq_norm != T::zero() {
-    //                    sign * neighbor_dot.clone() * neighbor_dot
-    //                        / (neighbor_normal_sq_norm * direction_sq_norm.clone())
-    //                } else {
-    //                    T::zero()
-    //                };
-    //            if max_sq_cos < sq_cos {
-    //                max_sq_cos = sq_cos;
-    //                max_sq_cos_facet_key = neighbor_key;
-    //            }
-    //        }
-    //        if facet_key == max_sq_cos_facet_key {
-    //            break;
-    //        } else {
-    //            facet_key = max_sq_cos_facet_key;
-    //        }
-    //    }
-    //    let mut max = T::zero();
-    //    let mut max_index = 0;
-    //    for (j, index) in self.facets[&facet_key].indices.iter().enumerate() {
-    //        let dot_product = dot(&self.points[*index], &direction);
-    //        if j == 0 || max < dot_product {
-    //            max = dot_product;
-    //            max_index = *index;
-    //        }
-    //    }
-    //    Ok(self.points[max_index].to_vec())
-    //}
 }
 
 fn select_vertices_for_simplex<T>(points: &[Vec<T>], threshold: T) -> Result<Vec<usize>, ErrorKind>
@@ -734,99 +654,6 @@ where
     None
 }
 
-//
-//fn non_degenerate_indices<T>(vertices: &[Vec<T>], threshold: T) -> Option<Vec<usize>>
-//where
-//    T: Clone + NumOps + Zero + One + PartialOrd + Neg<Output = T>,
-//{
-//    // look for points that are not degenerate for simplex using the Gram-Schmidt method
-//    let dim = vertices[0].len();
-//    let num_points = vertices.len();
-//    if dim >= num_points {
-//        return None;
-//    }
-//    let mut indices = vec![0];
-//    let mut first_axis = sub(&vertices[1], &vertices[0]);
-//    let mut sq_norm = dot(&first_axis, &first_axis);
-//    let mut j = 1;
-//    while sq_norm.clone() <= threshold.clone() {
-//        j += 1;
-//        if j >= num_points {
-//            return None;
-//        }
-//        first_axis = sub(&vertices[j], &vertices[0]);
-//        sq_norm = dot(&first_axis, &first_axis);
-//    }
-//    let mut axes = vec![first_axis];
-//    indices.push(j);
-//    for i in j + 1..num_points {
-//        let vector = sub(&vertices[i], &vertices[0]);
-//        let sq_norm = dot(&vector, &vector);
-//        if sq_norm.clone() <= threshold.clone() {
-//            continue;
-//        }
-//        let mut new_axis: Vec<_> = vector.clone();
-//        for axis in &axes {
-//            let axis_sq_norm = dot(&axis, &axis);
-//            let coef = dot(&axis, &vector) / axis_sq_norm;
-//            new_axis = new_axis
-//                .iter()
-//                .zip(axis.iter())
-//                .map(|(x, axis)| x.clone() - coef.clone() * axis.clone())
-//                .collect();
-//        }
-//
-//        let new_axis_sq_norm = dot(&new_axis, &new_axis);
-//        if new_axis_sq_norm.clone() <= threshold.clone() {
-//            continue;
-//        }
-//        axes.push(new_axis);
-//        indices.push(i);
-//        if axes.len() == dim {
-//            return Some(indices);
-//        }
-//    }
-//    None
-//}
-
-//
-//What is a good way to find the surface area?
-//
-//fn facet_area<T>(points_of_facet: &[Vec<T>]) -> T
-//where
-//    T: Clone + NumOps + Zero + One + PartialOrd,
-//{
-//    let num_points = points_of_facet.len();
-//    let dim = points_of_facet[0].len();
-//    assert_eq!(num_points, dim);
-//    let mut mat = Vec::new();
-//    for i in 1..num_points {
-//        let row: Vec<_> = points_of_facet[i]
-//            .iter()
-//            .zip(points_of_facet[i - 1].iter())
-//            .map(|(a, b)| a.clone() - b.clone())
-//            .collect();
-//        mat.push(row);
-//    }
-//    mat.push(facet_normal(points_of_facet));
-//    let factorial = {
-//        let mut result = T::one();
-//        let mut m = T::one() + T::one();
-//        let mut n = dim;
-//        while n > 1 {
-//            result = result * m.clone();
-//            n = n - 1;
-//            m = m + T::one();
-//        }
-//        result
-//    };
-//    let mut det = det(&mat);
-//    if det < T::zero() {
-//        det = T::zero() - det;
-//    }
-//    det / factorial
-//}
-
 fn facet_normal<T>(points_of_facet: &[Vec<T>]) -> Vec<T>
 where
     T: Clone + NumOps + Zero + One + Neg<Output = T>,
@@ -966,20 +793,6 @@ fn cube_test() {
         .vertices_indices();
     assert_eq!(i.len(), 6 * 2 * 3);
 }
-
-//#[test]
-//fn cube_area_test() {
-//    let p1 = vec![2.0, 2.0, 2.0];
-//    let p2 = vec![2.0, 2.0, 0.0];
-//    let p3 = vec![2.0, 0.0, 2.0];
-//    let p4 = vec![2.0, 0.0, 0.0];
-//    let p5 = vec![0.0, 2.0, 2.0];
-//    let p6 = vec![0.0, 2.0, 0.0];
-//    let p7 = vec![0.0, 0.0, 2.0];
-//    let p8 = vec![0.0, 0.0, 0.0];
-//    let cube = ConvexHull::try_new(&[p1, p2, p3, p4, p5, p6, p7, p8], 0.001, None).unwrap();
-//    assert_eq!(cube.area(), 24.0);
-//}
 
 #[test]
 fn cube_volume_test() {
@@ -1167,5 +980,5 @@ fn i128_test() {
                 .collect::<Vec<_>>(),
         );
     }
-    let octahedron = ConvexHull::try_new(&points_i128, 0, None).unwrap();
+    let _octahedron = ConvexHull::try_new(&points_i128, 0, None).unwrap();
 }
