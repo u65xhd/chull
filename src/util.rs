@@ -1,5 +1,6 @@
 use num_traits::{NumOps, Zero};
 
+#[inline]
 pub(crate) fn det_correlation_matrix<T: Clone + NumOps + Zero>(mat: &[Vec<T>]) -> T {
     let dim = mat[0].len();
     let num = mat.len();
@@ -18,6 +19,7 @@ pub(crate) fn det_correlation_matrix<T: Clone + NumOps + Zero>(mat: &[Vec<T>]) -
     det(&cor)
 }
 
+#[inline]
 pub(crate) fn dot<T: Clone + NumOps + Zero>(x: &[T], y: &[T]) -> T {
     x.iter()
         .zip(y.iter())
@@ -25,6 +27,7 @@ pub(crate) fn dot<T: Clone + NumOps + Zero>(x: &[T], y: &[T]) -> T {
         .fold(T::zero(), |sum, c| sum + c)
 }
 
+#[inline]
 pub(crate) fn sub<T: Clone + NumOps + Zero>(x: &[T], y: &[T]) -> Vec<T> {
     x.iter()
         .zip(y.iter())
@@ -55,6 +58,7 @@ pub(crate) fn min_max_index_each_axis<T: Clone + Zero + PartialOrd>(
     min_index.into_iter().zip(max_index.into_iter()).collect()
 }
 
+#[inline]
 pub(crate) fn is_same_dimension<T>(points: &[Vec<T>]) -> bool {
     if points.len() == 0 {
         return true;
@@ -67,6 +71,7 @@ pub(crate) fn is_same_dimension<T>(points: &[Vec<T>]) -> bool {
     }
 }
 
+#[inline]
 pub(crate) fn det<T: NumOps + Clone>(m: &[Vec<T>]) -> T {
     let row_dim = m.len();
     let column_dim = m[0].len();
@@ -82,10 +87,12 @@ pub(crate) fn det<T: NumOps + Clone>(m: &[Vec<T>]) -> T {
     }
 }
 
+#[inline]
 fn det_2x2<T: NumOps + Clone>(m: &[Vec<T>]) -> T {
     m[0][0].clone() * m[1][1].clone() - m[0][1].clone() * m[1][0].clone()
 }
 
+#[inline]
 #[rustfmt::skip]
 fn det_3x3<T: NumOps+Clone>(m: &[Vec<T>]) -> T {
     m[0][0].clone() * (m[1][1].clone() * m[2][2].clone() - m[1][2].clone() * m[2][1].clone())
@@ -93,6 +100,7 @@ fn det_3x3<T: NumOps+Clone>(m: &[Vec<T>]) -> T {
   + m[2][0].clone() * (m[0][1].clone() * m[1][2].clone() - m[0][2].clone() * m[1][1].clone())
 }
 
+#[inline]
 #[rustfmt::skip]
 fn det_4x4<T: NumOps + Clone>(m: &[Vec<T>]) -> T {
     m[0][0].clone()
